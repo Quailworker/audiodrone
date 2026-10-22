@@ -1,6 +1,7 @@
 # Acoustic Drone Detection and Tracking: Design
 
 - **Status:** draft v0.5, 2026-10-23.
+  - v0.5 adds a failure analysis of model B (5.10): real-sound false alarms (critical), codec and high-pass sensitivity, moving engines, masking, real detection range ~150 m.
   - v0.5 records the first trained models and how to replicate them: the 6,400-scene sim_v1 dataset, the frame-label rule actually used (`snr_lines2`, 5.8.6), the training recipe, results for CNN14 + log-frequency (B), CNN14 + stock mel (A) and a small CNN trained from scratch (C), and the fixes found by code review (5.9). Full scale changed to 120 dB SPL (14.6). Replication steps are in README.md; AGENTS.md is the test checklist.
   - v0.4 records the CNN build decisions: the real CNN14 checkpoint (32 kHz), render-then-convert, sim-only training with Joseph's own field recordings as the test, detection-only scope, drone classes incl. two-stroke (4.4), the scenario simulator (14.6), the field test protocol (14.7) and flat ground clusters as an alternative to the tetrahedron (7.8). New decisions D-24 to D-31.
   - v0.2 added CNN input representation and training data (sections 5.5–5.6, D-19 to D-21).
@@ -624,6 +625,55 @@ Compute: B ran 1 h 58 min on an RTX 3080 capped at 240 W (0.43 s/step; the n_fft
 | False alarms counted correctly detected chainsaws | inflated false-alarm rate | only frames labelled negative count |
 | Range credit in 2-drone scenes | detections of one drone credited to the other | credited to the nearer drone of that class |
 | Full scale 110 dB SPL | clipping on close sources | 120 dB SPL |
+
+### 5.10 Failure analysis of model B (v0.5) [C]
+
+Model B (CNN14 + log-frequency) was tested five ways. Code: `analysis/` (`dump`, `frames`, `slices`, `robust`, `sweeps`, `real`). A is shown where it differs.
+
+| Test | Data |
+|---|---|
+| Slices of every error | 700 test scenes (test_sim + test_heldout), 1.3 M frames, joined with every simulated parameter |
+| Recording-chain robustness | test_sim with 21 perturbations (gain, clipping, filters, codecs, noise, wind, hum) |
+| Controlled sweeps | 868 new scenes: range per class at 40 and 55 dBA, tip speed 50–210 m/s, each confuser and background alone |
+| **Real drones** | Fraunhofer IDMT outdoor flights (CC BY 4.0): DJI Phantom 4, DJI Mavic, Align, 163 × 30 s, GPS distance |
+| **Real non-drone sounds** | ESC-50 (CC BY-NC, test only): 2,000 real 5 s clips in 50 classes, at 3 playback levels |
+
+#### 5.10.1 Ranked weaknesses
+
+| # | Weakness | Evidence | Severity |
+|---|---|---|---|
+| W1 | **Open-set false alarms on real sounds.** drone_electric fires (≥ 0.5 s event) on **76–82 % of real ESC-50 clips** that contain no drone: crows, babies, laughter, sirens, horns, toilets, wind, footsteps. Independent of level (0, −20, −40 dB). Removing any one octave band does not stop it; keeping only > 1 kHz makes 98 % fire | ESC-50 test; occlusion test on 40 clips | **Critical**: the model would alarm constantly in the field |
+| W2 | **Lossy compression and small-mic high-pass** | electric F1 0.92 → 0.77 (MP3 low bitrate), → 0.72 (high-pass 400 Hz, FP ×9); Opus low bitrate 0.88 | High: phone or cheap recorders; record the field test uncompressed |
+| W3 | **Moving engines read as engine drones** | with no engine drone present, drone_engine fires on 14 % of light-aircraft frames, 14 % moped, 7 % mower, 4.5 % helicopter. Chainsaws are fine (0.2 %), absorbed by ground_engine | High for two-stroke detection (D-28) |
+| W4 | **Masking by loud backgrounds and other tonal sources** | recall 92 % overall but 56 % at 65–75 dBA background, 77 % when the loudest other source is > 20 dB above the drone in band, ~54 % when an aircraft or ground engine dominates | Medium: partly physics |
+| W5 | **Real detection range ~150 m** (rural, DJI-class drones) | real flights: 93 % ≤ 25 m, 90 % 25–50, 77 % 50–100, 49 % 100–150, 3.5 % 150–200, 0 % beyond | Medium: sets cluster spacing (8.2) |
+| W6 | **Big slow electric drones look like engines** | 7–12" at 4,000–7,500 RPM: 65–91 % detected, up to 62 % of frames called drone_engine | Medium |
+| W7 | **Two drones at once** | electric recall 80.5 % with two drones vs 92.6 % with one (beating combs) | Medium |
+| W8 | **Over-confident probabilities** | at p 0.5–0.6 only ~30 % of frames are positive; best F1 threshold ≈ 0.7 (drone heads), 0.9 (ground_engine) | Low: free fix |
+| W9 | Very close range (< 10 m) | 54.5 % recall on 220 frames / 7 scenes; the inspected case is a revving chainsaw masking the drone | Low: small sample |
+
+#### 5.10.2 What works
+
+- **Real drones are detected**, with no real data in training: ≥ 98 % "some drone" within 50 m on all three real models; fires 0 % when the same drone is > 200 m away, so it is not firing on the site's ambience.
+- **B beats A on real audio** (Phantom 4 static 0.94 vs 0.77; 10–25 m 0.93 vs 0.80): the first real evidence for D-19.
+- **RPM generalisation (FPV):** 100 % from 6,500 to 25,700 RPM (training ~10–17k).
+- **Simulated confusers and backgrounds alone** barely trigger it (worst: insects 6.7 %, wind at 80 dBA 2.6 %); chainsaws and mopeds go to ground_engine as designed.
+- **Robust** to gain −30 dB, clipping, 48 kHz resampling, 5 ms shift, high-bitrate MP3, ±6 dB/decade tilt, 16 kHz recorders.
+- The 76 % "electric detection at 0–25 m" in 5.9 was mostly the metric: only 83 % of those frames are labelled audible; recall on audible frames is 90 % (0–25 m), 100 % (25–50 m).
+
+#### 5.10.3 Causes and fixes
+
+| Weakness | Most likely cause | Fix (in order of value) |
+|---|---|---|
+| W1 | The simulator's negatives contain no voices, animals, alarms, water, clicks or real ambience; the electric head learned "structured sound above 1 kHz that is not a known negative" | Add a large, diverse set of real non-drone sounds as negatives (needs a decision: D-25 / open question 21). Options with clean licences: FSD50K (CC BY subset), AudioSet-derived clips, own recordings. Or synthesise many more negative families. Re-test on ESC-50 |
+| W2 | Training never saw codec artefacts or strong high-pass | Augment: random MP3/Opus round trips, high-pass 50–500 Hz, low-pass 4–16 kHz |
+| W3 | Moving engines on the ground and in the air share the drone's Doppler and pulse structure | More moving-engine negatives (mopeds, aircraft, mowers) in drone-free scenes; decide D-28 (option 2, "any engine" = max of two heads, removes most of this) |
+| W4, W7 | Few training scenes with a loud tonal interferer on top of a drone, or two drones | Oversample these mixtures |
+| W5 | Physics plus real conditions; may improve with W1/W2 fixes | Measure on Joseph's flights; size cluster spacing from the real curve |
+| W6 | Few low-RPM large electric drones in training | Widen the "mid" class to lower tip speeds and larger props |
+| W8 | pos_weight (2, 3, 3) shifts probabilities up | Tune thresholds on val, or temperature-scale |
+
+Not finished: the 4,000-scene extra sim test set (rendered, in `data/sim_eval`) was only 6 % predicted when the run was stopped for low memory; the 700-scene results above stand on their own.
 
 ---
 
