@@ -14,7 +14,7 @@ import soundfile as sf
 import torch
 
 from .data import frame_targets, load_meta, scene_list
-from .model import CLASSES, DroneCNN14
+from .model import CLASSES, DroneCNN14, SmallCNN
 
 R_BINS = [0, 25, 50, 100, 200, 400, 800, 1600, 5000]
 
@@ -51,10 +51,11 @@ def main():
     ap.add_argument("--split", nargs="+", default=["test_sim"])
     ap.add_argument("--model", required=True)
     ap.add_argument("--frontend", default="logf")
+    ap.add_argument("--arch", default="cnn14", choices=["cnn14", "small"])
     ap.add_argument("--threshold", type=float, default=0.5)
     a = ap.parse_args()
     device = "cuda"
-    model = DroneCNN14(a.frontend).to(device).eval()
+    model = (DroneCNN14(a.frontend) if a.arch == "cnn14" else SmallCNN(a.frontend)).to(device).eval()
     model.load_state_dict(torch.load(a.model, map_location=device))
 
     for split in a.split:
