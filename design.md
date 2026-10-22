@@ -1,6 +1,8 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.2, 2026-10-22. v0.2 adds CNN input representation and training data (sections 5.5–5.6, D-19 to D-21).
+- **Status:** draft v0.3, 2026-10-22.
+  - v0.2 added CNN input representation and training data (sections 5.5–5.6, D-19 to D-21).
+  - v0.3 adds the pretrained CNN14 model (section 5.7, D-22 and D-23) and a known-flaws review (section 16).
 - **Owner:** Joseph
 - **Scope:** everything discussed so far about detecting drones by sound, estimating their position, height and velocity, and the microphone hardware.
 
@@ -106,6 +108,8 @@ SERVER                                                     [J] server + CNN
 | D-19 | CNN input is a **converted view**: a **log-frequency spectrogram with loudness in dB** | [J] converted view; [C] log axis | derived; not yet tested on a CNN | D-02 | **Adopted** |
 | D-20 | Feed several views: log spectrogram, harmonic-salience map, per-frame features, optionally beamformed audio | [J] converted view; [C] specific views | open | D-03, D-19 | Proposed |
 | D-21 | Training data: widely varied simulated drones on real backgrounds, then fine-tune and test on real recordings; type identification from real per-model recordings | [J] simulated; [C] mix and order | open | D-05, D-17 | Proposed |
+| D-22 | Start from **pretrained CNN14** (PANNs, AudioSet; frame-level 16 kHz variant), fine-tuned on simulated (rendered) audio converted to a log-frequency spectrogram | [J] | open: not trained yet | D-02, D-19, D-21 | **Adopted** |
+| D-23 | CNN14 front end: start with stock log-mel as a baseline, then a mel scale with a lower bend point (log-spaced from ~50 Hz), longer window | [C] | derived; not tested | D-19, D-22 | Proposed |
 
 ---
 
@@ -291,6 +295,57 @@ The spectrogram and the salience map have different vertical axes (frequency vs 
 - Simulation settings (RPM, distance, SNR, background) so failures can be analysed.
 
 **Pitfall to avoid [C]:** training on one simulated drone type teaches the CNN the simulator, not drones.
+
+### 5.7 Pretrained model: CNN14 (D-22, D-23)
+
+**Joseph's idea [J]** (paraphrased):
+
+> Use **CNN14** as the starting model and **fine-tune** it on rendered (simulated) audio that has been converted to the frequency domain and then to a **log-frequency spectrogram**.
+
+**Where CNN14 comes from [C]** *(checked against documentation; see section 18)*
+- CNN14 is from **PANNs** (Kong et al.), pretrained on AudioSet (about 2 million clips, 527 classes). The code is MIT-licensed.
+- It is **not a core NeMo model**. **NeMo Curator** includes an adapter that runs a PANNs CNN14 checkpoint. It ships only the **decision-level (frame-level) variants**, which output predictions at 100 frames per second.
+- **Frame-level output is required** to find *when* a drone is heard (D-02). The base CNN14 gives one answer per clip.
+- A **16 kHz checkpoint** (`Cnn14_16k`) exists, with settings: 64 mel bands, 50–8000 Hz, window 512, hop 160. This matches the simulator's 16 kHz audio.
+- About 80M parameters, so it runs on the server, not on the cluster. A smaller variant (E-PANNs) exists if needed.
+
+**Why it fits [C]**
+- Pretraining on AudioSet means it already responds to engines, buzzing and mechanical sounds.
+- Fine-tuning then needs far less drone data than training from scratch.
+- Reported fine-tuning results include 0.960 accuracy on MSoS (PANNs paper) and ~95.75% on ESC-50 (community repo) *(unverified)*.
+
+**Conflict with the log-frequency plan (D-19) [C]** *(derived)*
+
+1. **Mel is not logarithmic at low frequencies.** CNN14 was pretrained on a log-mel spectrogram:
+   ```
+   m(f) = 2595 · log₁₀(1 + f/700)
+   f ≪ 700 Hz:  log₁₀(1 + x) ≈ x / ln 10   →  m ≈ 1.61·f      (linear)
+   f ≫ 700 Hz:  m ≈ 2595 · log₁₀(f/700)                     (logarithmic)
+   ```
+   Below ~700 Hz the mel scale is nearly linear, which is where drone fundamentals sit (50–500 Hz). So CNN14's stock input does **not** give the pitch-invariant shape of 5.5 in the drone's main range.
+2. **Frequency resolution is too coarse.** A 512-sample window at 16 kHz gives FFT bins 16000/512 = 31 Hz wide. Harmonics 60 Hz apart (heavy-lift drone) get only about 2 bins per gap.
+
+**Front-end options (D-23) [C]**
+
+CNN14 takes **raw audio** and computes its spectrogram in its first layer. Converting to a log-frequency spectrogram therefore means **changing that internal layer**, not preparing images separately.
+
+| Option | Change | Pretraining kept | Pitch-invariant over drone range |
+|---|---|---|---|
+| **A. Stock log-mel (baseline)** | None; fine-tune as-is | Full | Only above ~700 Hz |
+| **B. Mel with a lower bend point** | In m(f), replace 700 with ~50 Hz so the scale is log-spaced from ~50 Hz; keep 64 bands; window 2048 samples (7.8 Hz bins), hop 160 | Most (same input shape) | Yes |
+| **C. True log-frequency (CQT)** | Replace the front layer with a constant-Q transform, possibly more bands | Partial (early layers must re-adapt) | Yes |
+
+**Plan:** A as the baseline, then B. Compare on **real** recordings (open question 9). Move to C only if B falls short.
+
+**Practical notes [C]**
+- **Changing the band count** probably requires replacing the first normalisation layer (`bn0`, which appears to normalise each mel band separately). This was seen only in a derived copy of the code, so check the official `models.py` or the checkpoint's layer names *(unverified)*. The convolutional layers and global pooling accept any input height.
+- **Fine-tuning order:**
+  1. Replace the 527-class output with drone / no-drone (type later).
+  2. Train the new head with the rest frozen.
+  3. Unfreeze deeper layers with a small learning rate.
+- **Extra views** (harmonic-salience map, comb features, whine/BPF ratio; D-20) cannot pass through CNN14. Join them with CNN14's frame-level output just before the final layers.
+- **Rendered audio alone is not enough.** Mix simulated drones into real backgrounds, and test only on real recordings (D-21).
+- **Licence:** PANNs code is MIT. Check the terms for the pretrained weights and AudioSet before any commercial use *(unverified)*.
 
 ---
 
@@ -566,7 +621,7 @@ step height ±f₀v/c  →  v;   width T = d/v  →  d = v·T
 
 - **Example:** v = 11.9 m/s, d = 22.6 m, 10th harmonic at 2831 Hz. Then T ≈ 1.9 s, step ±98 Hz, centre slope ≈ 52 Hz/s. Needs about **6T ≈ 11 s** of track to see the flat ends of the curve; a 3 s clip is too short. *(derived)*
 - **Limits:** no information while hovering; RPM changes look like Doppler; assumes a straight path; gives distance but not direction.
-- Literature: speed and range are known to be hard to separate in single-sensor Doppler TMA at low SNR or small Doppler (section 17).
+- Literature: speed and range are known to be hard to separate in single-sensor Doppler TMA at low SNR or small Doppler (section 18).
 
 **Dataset note** [C]: the simulated dataset peak-normalises clips and draws SNR independently of distance, which removes the loudness cue. To learn distance, use calibrated levels: source level + 1/r + fixed background, with no peak normalisation. *(derived)*
 
@@ -755,11 +810,54 @@ Recorded so that similar mistakes are easier to spot.
 | Kalman tuning | q_f0 too low; RPM jump read as vertical motion | q_f0 = 100 |
 | Mast cluster | Helped in the snapshot test, not in the filter | Left optional; cause unconfirmed |
 | Example captions | Three captions claimed more than the spectrograms showed | Re-picked examples, rewrote captions |
-| "Noise sound database from a sponsor" | Searched the event page, Gmail (student account) and Drive; nothing found | Unresolved; public datasets listed in section 17 |
+| "Noise sound database from a sponsor" | Searched the event page, Gmail (student account) and Drive; nothing found | Unresolved; public datasets listed in section 18 |
 
 ---
 
-## 16. Open questions and next steps
+## 16. Known flaws and risks [C]
+
+A review of the whole plan, in order of severity. Each item names the decisions it affects and whether the flaw is in Joseph's core idea or in Claude's extensions.
+
+**Summary:** Joseph's core ideas hold up:
+- clusters with overlapping coverage,
+- time-frequency processing with a server CNN,
+- triangulation for position and towards/away,
+- tetrahedron + Kalman filter for height,
+- the converted view for the CNN.
+
+Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, the assumed direction accuracy, and numbers that come only from simulation.
+
+### 16.1 Critical: could change the design
+
+| # | Flaw | Why it matters | Affects | Origin | Fix |
+|---|---|---|---|---|---|
+| F1 | **No validation on real audio.** All accuracy figures come from Claude's simulator, tested against itself (clean comb, omnidirectional source, no echoes, no wind) | Sub-metre position, 0.1 m/s velocity, 0.3 m height and 0.2 Hz tracking are best-case and may be far off | D-12 to D-16 | [C] | Record a real drone with a GPS log using one or two prototype clusters; measure actual errors first |
+| F2 | **A multirotor has no single f₀.** Each rotor has its own BPF, a few % apart, changing constantly (that is how it steers) | Doppler differences between clusters are also only a few % (up to ~2v/c ≈ 7% at 12 m/s). If clusters lock onto different rotors' lines, the error is as large as the signal. The Kalman simulation used one clean tone | D-13, D-16, 9.5 | [C] | Model rotor lines separately, or track each harmonic's line-group centre; re-run simulations with rotor spread |
+| F3 | **Coverage needs many clusters.** Each covers a hexagon of (√3/2)·s². 1 km² needs ~115 clusters at s = 100 m, ~460 at s = 50 m. Urban range ~20–50 m | Cost and maintenance (power, network, weatherproofing, levelling, surveying). The range itself rests on assumed numbers (80 dB at 1 m, G = 10–20 dB) | D-06, D-09 | Range numbers [C]; layout [J] | Measure real range first; scope to protected sites rather than open-area coverage |
+| F4 | **Direction accuracy is assumed** (σ_u = 0.02, σ_τ = 10 µs) | Tonal signals give repeating GCC-PHAT peaks (ambiguous direction). At 60 Hz, λ = 5.7 m is ~30× the array size. FPV BPF (≥ 750 Hz) is near the 860 Hz alias limit | D-08, D-14 | [C] | Test direction finding on real drone audio with the real array; use the broadband component too; consider a second smaller array or a larger aperture with more mics |
+
+### 16.2 Significant: needs design work
+
+| # | Flaw | Affects | Origin | Fix |
+|---|---|---|---|---|
+| F5 | Missing false-alarm sources: fans and air conditioners (real blade-passing tones), generators and transformers (50 Hz mains-hum comb), helicopters, idling cars | D-02, D-17 | [C] (confuser list) | Reject tracks that are stationary and near the ground; add these sounds to training data |
+| F6 | Several drones of the same model have nearly equal f₀, so time + f₀ matching fails | 9.5, D-12 | [C] | Multi-target tracking: per-track state, assignment by geometry; simulate it |
+| F7 | Kalman gaps: no sound-delay model (~3 m at 100 m and 10 m/s); no outlier rejection; initialisation assumed close; vertical velocity weakest (±0.6 m/s best case) | D-12, D-13 | [C] | Emission-time model; Mahalanobis gating; initialise from a two-cluster triangulation |
+| F8 | Echoes from buildings give false directions; simulations had none | D-14 | [C] | Gating (F7), require agreement between clusters; expect worse urban accuracy |
+| F9 | Wind noise sits in the drone's main band (50–500 Hz) and is worse on pole mounts; ignored in range estimates | D-09, 7.7 | [C] | Good windshields; measure range in windy conditions |
+| F10 | **Recording law and privacy.** Mics also capture conversations. In Victoria, check the Surveillance Devices Act 1999 *(unverified, get advice)* | 9.3 | — | Clusters already send features, not raw audio; keep spectrogram clips short and limited to drone frequencies, or drop them |
+
+### 16.3 Minor
+
+- **Unknown drone types:** the type classifier should be able to answer "drone, type unknown" rather than force a known class (D-04, D-05).
+- **High altitude:** quiet drones above ~100–150 m may be inaudible. Consider pairing with RF or radar for serious use.
+- **Dataset gaps:** see 14.5.
+- **D-19 untested:** see open question 9.
+- **No audio buffer:** a short ring buffer (e.g. 30 s) on each cluster would allow re-analysis on request.
+
+---
+
+## 17. Open questions and next steps
 
 1. **D-18:** which drone types must be detected (consumer/FPV multirotors only, or also fixed-wing and piston)?
 2. Pick and test the 4-channel synchronous audio hardware for the tetrahedron.
@@ -771,10 +869,15 @@ Recorded so that similar mistakes are easier to spot.
 8. Decide whether a mast cluster is worthwhile, using real data.
 9. Test D-19: train the same CNN on linear vs log-frequency input and compare accuracy on real recordings, especially at RPMs not seen in training.
 10. Check whether `~/drone18_field_test` and `~/field_recorder` contain real drone recordings usable for fine-tuning and testing (D-21). Not yet opened.
+11. Re-run the velocity and Kalman simulations with per-rotor lines (F2).
+12. Add multi-target tracking, emission-time correction and gating to the Kalman filter (F6, F7).
+13. Fine-tune CNN14 with front ends A and B and compare on real recordings (D-22, D-23).
+14. Confirm CNN14's `bn0` layout in the official PANNs code before changing the band count (D-23).
+15. Get advice on recording-law requirements before any public deployment (F10).
 
 ---
 
-## 17. References
+## 18. References
 
 *(unverified unless stated: only abstracts or search results were read)*
 
@@ -788,6 +891,15 @@ Recorded so that similar mistakes are easier to spot.
 **Search terms:** Doppler TMA, CPA estimation, LOFAR, GCC-PHAT, SRP-PHAT, MUSIC, TDOA multilateration, acoustic UAV detection and localisation, ISO 9613-1 (atmospheric absorption).
 
 **Datasets** (not checked in this session): ESC-50, UrbanSound8K, FSD50K, DEMAND, MS-SNSD (backgrounds); DroneAudioDataset (Al-Emadi et al.), DREGON (drone audio).
+
+**Pretrained audio models**
+- Kong et al., PANNs: Large-Scale Pretrained Audio Neural Networks. https://arxiv.org/pdf/1912.10211
+- NeMo Curator PANNs adapter (decision-level CNN14, 100 fps, MIT-licensed vendored code). https://docs.nvidia.com/nemo/curator/nemo-curator/nemo_curator/models/audio/sed/panns.md
+- NeMo Curator CNN14. https://docs.nvidia.com/nemo/curator/nemo-curator/nemo_curator/models/audio/sed/cnn14
+- audioset_tagging_cnn README (`Cnn14_16k` checkpoint and settings). https://github.com/zanilzanzan/audioset_tagging_cnn/blob/master/README.md
+- Community CNN14 fine-tuning results. https://github.com/sithu31296/audio-tagging
+- CNN14 fine-tuned for engine sounds (example). https://huggingface.co/joakes90/engine_sound_cassifier
+- E-PANNs (smaller variant). https://arxiv.org/pdf/2305.18665
 
 **Tools:** `librosa.pcen`, `sed_eval`, `scipy.optimize.curve_fit`.
 
