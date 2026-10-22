@@ -111,4 +111,4 @@ Then evaluate and compare: `python scripts/compare_results.py runs results`. It 
 
 - Electric drones are only detected about 76 % of the time at 0–25 m in sim. This is probably the metric counting ignored or masked frames; under investigation.
 - `drone_engine` fires on ground two-strokes (chainsaws, blowers): about 28 false alarms per hour on drone-free scenes (design D-28, open). For "any engine", use max(drone_engine, ground_engine).
-- All results are on simulated audio. Nothing has been validated on real recordings yet.
+- Real recordings (results/real_world/REAL_TESTS.md): real drones are detected out to ~100 m, but everyday non-drone sounds (voices, animals, horns, sirens) trigger the electric head on ~80 % of clips. Expect false alarms in the field. See UPGRADES.md for the planned fixes.

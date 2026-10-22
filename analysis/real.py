@@ -1,10 +1,14 @@
 """Real recordings (test only, never used for training, design D-25).
 
     python -m analysis.real esc50 --root data/real/ESC-50-master --out analysis/out/real_esc50.pkl
+    python -m analysis.real svanstrom --root data/real/svanstrom --out analysis/out/real_svanstrom.pkl
     python -m analysis.real idmt  --root data/real/idmt --out analysis/out/real_idmt.pkl
 
 esc50: 2,000 real 5 s environmental clips in 50 classes (no drones; CC BY-NC). Per clip and model, the
         peak probability per class and whether a >= 0.5 s event fires. Measures real false alarms.
+svanstrom: Svanström et al. 2021 drone detection dataset (CC0): 90 real 10 s clips from a ground mic,
+        30 each DRONE (Hubsan H107D+, DJI Phantom 4 Pro, DJI Flame Wheel F450), HELICOPTER, BACKGROUND.
+        Per clip and model, the per-frame probabilities. Measures real detection and real false alarms.
 idmt:  Fraunhofer IDMT outdoor drone flights (DJI Phantom/Mavic, Align; CC BY 4.0) in 30 s segments with
         GPS positions. Per 40 ms frame, the model probabilities and the drone's distance. Measures real
         detection against distance.
@@ -23,7 +27,8 @@ from analysis.dump import load_model
 from cnn.evaluate import predict
 from cnn.model import CLASSES, SR
 
-MODELS = {"B": ("models/B_logf_best.pt", "logf"), "A": ("models/A_mel_best.pt", "mel")}
+MODELS = {"B": ("models/B_logf_best.pt", "logf", "cnn14"), "A": ("models/A_mel_best.pt", "mel", "cnn14"),
+          "C": ("models/C_small_best.pt", "logf", "small")}
 
 
 def load_mono(path, channel=0):
@@ -58,16 +63,37 @@ def esc50(root, models, device, gain_db=0.0):
     return pd.DataFrame(rows)
 
 
+def svanstrom(root, models, device):
+    """Per clip: class from the file name and each model's per-frame probabilities (100 fps)."""
+    rows = []
+    for wav in sorted((Path(root) / "audio").glob("*.wav")):
+        x = load_mono(wav)
+        row = {"file": wav.name, "category": wav.stem.split("_")[0].lower(),
+               "rms_dbfs": 20 * np.log10(np.sqrt(np.mean(x ** 2)) + 1e-12)}
+        for name, model in models.items():
+            p = predict(model, x, device)
+            row[f"{name}_p"] = p.astype(np.float32)
+            for c, cat in enumerate(CLASSES):
+                row[f"{name}_max_{cat}"] = float(p[:, c].max())
+                row[f"{name}_frac_{cat}"] = float((p[:, c] >= 0.5).mean())
+                row[f"{name}_event_{cat}"] = event(p[:, c])
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("dataset", choices=["esc50", "idmt"])
+    ap.add_argument("dataset", choices=["esc50", "idmt", "svanstrom"])
     ap.add_argument("--root", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--gain_db", type=float, default=0.0, help="esc50: scale clips (they are normalised loud)")
     a = ap.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    models = {k: load_model(p, f, "cnn14", device) for k, (p, f) in MODELS.items()}
-    df = esc50(a.root, models, device, a.gain_db) if a.dataset == "esc50" else idmt(a.root, models, device)
+    models = {k: load_model(p, f, arch, device) for k, (p, f, arch) in MODELS.items()}
+    if a.dataset == "esc50":
+        df = esc50(a.root, models, device, a.gain_db)
+    else:
+        df = (idmt if a.dataset == "idmt" else svanstrom)(a.root, models, device)
     df.to_pickle(a.out)
     print(f"{len(df)} rows -> {a.out}")
 
