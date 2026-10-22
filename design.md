@@ -1,6 +1,7 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.3, 2026-10-22.
+- **Status:** draft v0.4, 2026-10-22.
+  - v0.4 records the CNN build decisions: the real CNN14 checkpoint (32 kHz), render-then-convert, sim-only training with Joseph's own field recordings as the test, detection-only scope, drone classes incl. two-stroke (4.4), the scenario simulator (14.6), the field test protocol (14.7) and flat ground clusters as an alternative to the tetrahedron (7.8). New decisions D-24 to D-31.
   - v0.2 added CNN input representation and training data (sections 5.5–5.6, D-19 to D-21).
   - v0.3 adds the pretrained CNN14 model (section 5.7, D-22 and D-23) and a known-flaws review (section 16).
 - **Owner:** Joseph
@@ -59,12 +60,18 @@ Later decisions by Joseph:
 
 - Use a **4th microphone on top**, making each cluster a triangular pyramid (tetrahedron), so the height of the drone can be found. (D-07)
 - Use a **Kalman filter** to estimate and predict the drone's state, including height. (D-12)
+- (v0.4) Start the CNN from **CNN14 as shipped by NeMo**, fine-tune on **rendered drone audio converted to a log-frequency spectrogram**. (D-22)
+- (v0.4) **Train on simulation only**; test on his own field recordings of a drone flying over a mic. (D-25)
+- (v0.4) First CNN does **detection only**. (D-26)
+- (v0.4) Drone classes: 5–7" FPV, 7–12" electric, ~10"+ two-stroke. (D-27)
+- (v0.4) Generate data by **rendering whole scenarios**: mics at fixed positions, a drone flying over. (D-29)
+- (v0.4) Prefer microphones **on one plane / on the ground surface** rather than a raised tetrahedron, if height can still be found. (D-30)
 
 ### 2.2 Current architecture (after the revisions below)
 
 ```
 CLUSTER (one per site)                                     [J] clusters; [J←C] 4 mics
-  4 MEMS mics, regular tetrahedron, 20 cm edge
+  4 MEMS mics, regular tetrahedron, 20 cm edge          (under review: flat ground cluster, D-30)
   audio → STFT (time-frequency) [J]
         → whitening + harmonic comb trigger [C]
           on trigger:
@@ -93,7 +100,7 @@ SERVER                                                     [J] server + CNN
 | D-04 | Identify drone **type** with the CNN | [J] | open | D-02 | Adopted, revised by D-05 |
 | D-05 | Type must not rely on frequency alone; use whine/BPF ratio, rotor count, harmonic shape; needs real recordings | [C revises J] | derived | D-04 | Proposed |
 | D-06 | Microphones grouped in **clusters**, spread over the area | [J] | — | — | Adopted |
-| D-07 | Each cluster is a **4-mic regular tetrahedron** (originally 3 mics) | [J←C] | derived | D-06 | **Adopted** |
+| D-07 | Each cluster is a **4-mic regular tetrahedron** (originally 3 mics) | [J←C] | derived | D-06 | **Under review (D-30)** |
 | D-08 | Tetrahedron edge **20 cm**; direction finding uses frequencies **< 860 Hz** | [C] | derived | D-07 | Proposed |
 | D-09 | Cluster ranges must **overlap substantially** (spacing ≈ range), not slightly | [C revises J] | derived | D-06 | Proposed |
 | D-10 | **Direction finding runs on the cluster**; server receives directions, not only spectrograms | [C revises J] | derived | D-06, D-07 | Proposed |
@@ -103,13 +110,21 @@ SERVER                                                     [J] server + CNN
 | D-14 | Height comes from **3D triangulation of tetrahedral directions inside the Kalman filter** | [J] + [C] | simulated | D-07, D-12 | **Adopted** |
 | D-15 | Towards/away is decided from the **tracked position**, with the frequency gradient as a supporting cue | [J] triangulation; [C revises J] | derived | D-11, D-12 | Proposed |
 | D-16 | Velocity from **Doppler at several clusters at once** (inside the Kalman filter) | [C] | simulated | D-12 | Proposed |
-| D-17 | Train with **simulated drone audio**, test on real recordings | [J] simulate; [C] split | simulated | D-02 | Adopted |
-| D-18 | Which drone types are in scope (affects whether lawnmower/motorbike sounds are "not drone") | — | open | D-04, D-17 | **Open** |
+| D-17 | Train with **simulated drone audio**, test on real recordings | [J] simulate; [C] split | simulated | D-02 | Adopted; detailed by D-25 |
+| D-18 | Which drone types are in scope (affects whether lawnmower/motorbike sounds are "not drone") | [J] | — | D-04, D-17 | **Resolved by D-27** (airframe of two-strokes still open) |
 | D-19 | CNN input is a **converted view**: a **log-frequency spectrogram with loudness in dB** | [J] converted view; [C] log axis | derived; not yet tested on a CNN | D-02 | **Adopted** |
 | D-20 | Feed several views: log spectrogram, harmonic-salience map, per-frame features, optionally beamformed audio | [J] converted view; [C] specific views | open | D-03, D-19 | Proposed |
-| D-21 | Training data: widely varied simulated drones on real backgrounds, then fine-tune and test on real recordings; type identification from real per-model recordings | [J] simulated; [C] mix and order | open | D-05, D-17 | Proposed |
-| D-22 | Start from **pretrained CNN14** (PANNs, AudioSet; frame-level 16 kHz variant), fine-tuned on simulated (rendered) audio converted to a log-frequency spectrogram | [J] | open: not trained yet | D-02, D-19, D-21 | **Adopted** |
-| D-23 | CNN14 front end: start with stock log-mel as a baseline, then a mel scale with a lower bend point (log-spaced from ~50 Hz), longer window | [C] | derived; not tested | D-19, D-22 | Proposed |
+| D-21 | Training data: widely varied simulated drones on real backgrounds, then fine-tune and test on real recordings; type identification from real per-model recordings | [J] simulated; [C] mix and order | open | D-05, D-17 | **Revised by D-25** (no real fine-tuning for now) |
+| D-22 | Start from **pretrained CNN14 as shipped by NeMo Curator: `Cnn14_DecisionLevelMax` (32 kHz, frame-level)**, fine-tuned on simulated (rendered) audio converted to a log-frequency spectrogram. v0.3's "frame-level 16 kHz" checkpoint does not exist | [J]; checkpoint [C] | checkpoint verified; not trained yet | D-02, D-19, D-21 | **Adopted (revised v0.4)** |
+| D-23 | CNN14 front end: start with stock log-mel as a baseline, then a mel scale with a lower bend point (log-spaced from ~50 Hz), longer window (n_fft 4096 at 32 kHz; 5.8.4) | [C] | derived; not tested | D-19, D-22 | Proposed |
+| D-24 | **Render time-domain audio, then apply the same conversion as for real mic audio**; never synthesise spectrograms directly | [J←C] | derived | D-19, D-22 | **Adopted** |
+| D-25 | **Train on simulated data only; test on Joseph's own field recordings** (never trained on), plus a harder held-out sim test set | [J]; held-out design [C] | open | D-17, D-21 | **Adopted** |
+| D-26 | First CNN does **detection only** (no type identification) | [J] | — | D-02, D-04 | **Adopted** |
+| D-27 | Drone classes: **5–7" FPV, 7–12" electric, ~10"+ two-stroke petrol** | [J]; sound models [C] | estimate | D-18 | **Adopted** |
+| D-28 | Handling two-stroke drones vs ground engines: proposed 3 outputs, electric drone / engine / nothing | [C] | open | D-26, D-27 | **Open** (labels kept for all options) |
+| D-29 | Data comes from a **scenario simulator**: mics at fixed positions, sources flying trajectories, propagation physics per mic, long clips covering whole passes | [J] idea; [C] physics | derived; not validated | D-17, D-24 | **Adopted** |
+| D-30 | Mic clusters **flat, on the ground surface**; height from overlapping clusters + Doppler in the EKF (instead of a tetrahedron) | [J] idea; [C] analysis | derived; to be simulated | D-07, D-09, D-12, D-14 | Proposed |
+| D-31 | Field test protocol: drone passes at several distances with a flight log, plus no-drone and confuser recordings | [J] test; [C] protocol | — | D-25 | Proposed |
 
 ---
 
@@ -157,6 +172,62 @@ f_whine / BPF = (pole_pairs × f_shaft) / (n_blades × f_shaft) = pole_pairs / n
 ```
 
 RPM cancels out, so this ratio is a fingerprint of the drone's design and a candidate feature for type identification (D-05). *(derived)*
+
+### 4.4 Drone classes in scope (D-27) [J], sound models [C]
+
+**Joseph's decision [J]:** cover electric drones from **5-inch to 7-inch** (FPV), **7-inch to 12-inch**, and from about **10 inch upward, two-stroke petrol engines**.
+
+| Class | Power | Props | RPM hover → full | Main tone (BPF) | Other content |
+|---|---|---|---|---|---|
+| 5–7" FPV | Electric, 4 rotors | 3-blade (some 2) | ~12,000 → 30,000 | ~600 → 1,500 Hz | Motor whine 2–5 kHz |
+| 7–12" | Electric, 4–8 rotors | 2–3 blade | ~5,000 → 14,000 | ~170 → 700 Hz | Whine 0.5–2 kHz |
+| ~10"+ two-stroke | Petrol, single-cylinder | 2-blade, direct drive | ~2,000 idle → 9,000 | ~70 → 300 Hz | Exhaust pulse train, very rich in harmonics |
+
+All numbers *(estimate)*. Overall: fundamentals ~70 Hz to ~1.5 kHz, useful content up to ~5 kHz, which fits a 32 kHz sample rate (Nyquist 16 kHz) and CNN14's 50 Hz–14 kHz band.
+
+**Prop size and RPM.** At a roughly constant tip speed (tip Mach number), RPM scales inversely with diameter *(derived)*:
+```
+v_tip = π · D · RPM/60     →     RPM ≈ 60 · v_tip / (π · D)
+D = 5" (0.127 m), v_tip ≈ 150 m/s  →  RPM ≈ 22,600  →  3-blade BPF ≈ 1,130 Hz
+D = 12" (0.305 m), v_tip ≈ 120 m/s →  RPM ≈ 7,500   →  2-blade BPF ≈ 250 Hz
+```
+
+**Electric multirotor model** [C]: each rotor i is its own harmonic comb at BPF_i = n_b · RPM_i/60, plus motor whine at p · RPM_i/60 (p = pole pairs). Rotors differ by a few percent, so at harmonic k two rotors **beat** at
+```
+f_beat,k = k · |BPF_i − BPF_j|
+example: BPF 200 Hz, rotors 3% apart → 6 Hz beat at k = 1, 60 Hz beat at k = 10
+```
+The beating rate grows with harmonic number. This is a multirotor fingerprint (also the cause of flaw F2).
+
+**Two-stroke model** [C] *(derived; parameters estimated)*. A single-cylinder two-stroke fires **once per revolution**:
+```
+f_shaft = RPM/60,   f_fire = f_shaft,   BPF = n_b · f_shaft   (direct drive, so all lines are harmonics of f_shaft)
+```
+The exhaust is a train of pressure pulses g(t) repeated every T = 1/f_fire:
+```
+p(t) = Σₙ g(t − nT)   →   P(f) = f_fire · Σₖ G(k·f_fire) · δ(f − k·f_fire)
+```
+A short pulse (width τ_p) has a nearly flat |G(f)| up to about 1/τ_p, so **many harmonics are strong**: the "rasp". Cycle-to-cycle timing jitter σ_T makes high harmonics incoherent:
+```
+coherent amplitude of harmonic k  ∝  exp(−½ · (2π · k · f_fire · σ_T)²)
+```
+Low harmonics stay as sharp lines and high harmonics smear into noise. A 2-blade prop puts its BPF on harmonic 2, reinforcing even harmonics.
+
+**Electric vs two-stroke**
+
+| | Electric multirotor | Two-stroke |
+|---|---|---|
+| Source | 4–8 rotors at slightly different RPM | One engine |
+| Comb | Several close combs that beat | One very strong, very regular comb |
+| Character | Smooth hum and whine | Harsh rasp (chainsaw, moped) |
+| Throttle | Each rotor changes separately (that is how it steers) | Whole comb slides together |
+
+**Confusion with ground engines (D-28, open).** Chainsaws, leaf blowers, mopeds and lawnmowers use the same kind of engine, so on one mic they can sound almost the same as a two-stroke drone. Options:
+1. Label ground two-strokes "not drone" and let the CNN look for subtle cues (prop tone over the engine, smooth airborne throttle vs stop-start revving). Risk: missing real two-stroke drones.
+2. **Proposed:** three outputs, **electric drone / engine / nothing**. "Engine" means "could be a drone"; the array decides later (an engine up in the air is a drone).
+3. Leave ground engines out, so every engine is a drone. Simple, but false alarms near gardens and roads.
+
+The simulator labels every source separately, so any option can be chosen at training time. Open: whether the two-stroke drones are **fixed-wing** (fast, large Doppler, never hover) or **multirotor**; both are rendered until decided.
 
 ---
 
@@ -347,6 +418,119 @@ CNN14 takes **raw audio** and computes its spectrogram in its first layer. Conve
 - **Rendered audio alone is not enough.** Mix simulated drones into real backgrounds, and test only on real recordings (D-21).
 - **Licence:** PANNs code is MIT. Check the terms for the pretrained weights and AudioSet before any commercial use *(unverified)*.
 
+### 5.8 CNN build plan, v0.4 (D-22 revised, D-24 to D-26)
+
+**Joseph's pipeline [J]** (confirmed 2026-10-22):
+
+```
+simulated drone → mic signal → frequency-domain graph → conversion (log frequency, dB) → CNN14 → detection
+```
+
+The idea carried over from the drone tracker: take the raw data, convert it into a form where every drone looks the same (pitch changes become shifts, D-19), and train the CNN on that.
+
+#### 5.8.1 Render audio first, then convert (D-24) [J←C]
+
+| Option | Generated | Problem |
+|---|---|---|
+| Draw spectrograms directly | Clean spikes at f₀, 2f₀, 3f₀ | Too perfect: no window smearing, rotor beating, Doppler bends or mixed-in noise. The CNN would learn "perfect spikes" and miss real ones. |
+| **Render the waveform, then run the same conversion as real audio** | What the mic would record | Simulated and real pipelines are identical from the mic onward. CNN14 also takes raw audio as input. |
+
+#### 5.8.2 The checkpoint (D-22, revised) [C] *(verified against the PANNs README, models.py and the NeMo Curator docs, 2026-10-22)*
+
+- v0.3 said "frame-level 16 kHz variant". **That checkpoint does not exist.** The 16 kHz CNN14 (`Cnn14_16k_mAP=0.438`) is clip-level only.
+- NeMo Curator's CNN14 adapter defaults to **`Cnn14_DecisionLevelMax_mAP=0.385.pth`** (Zenodo record 3987831), which is the starting model.
+- Settings: **32 kHz**, window 1024, hop 320, 64 mel bands, fmin 50 Hz, fmax 14,000 Hz, 527 AudioSet classes.
+- **The simulator therefore renders at 32 kHz.**
+- Loaded with the official PANNs `models.py` (MIT), the same code the NeMo adapter vendors. Installing all of NeMo Curator is not needed.
+
+**Frame rates inside CNN14** *(derived from models.py)*:
+```
+STFT hop 320 at 32 kHz            → 100 frames/s at the input
+6 conv blocks, time pooled ×2 in 5 → ÷32 → 3.125 frames/s inside the network
+framewise output interpolated ×32 → back to 100 frames/s
+clip output = max over time        ("DecisionLevelMax")
+```
+So "when" has an effective resolution of about 0.32 s, which is fine for detection.
+
+#### 5.8.3 What mel is, and why its bend point matters [C]
+
+The mel scale spaces frequencies the way human hearing judges pitch:
+```
+m(f) = 2595 · log₁₀(1 + f/700)
+check: m(1000) = 2595 · log₁₀(2.43) ≈ 1000 mel
+```
+
+| f | mel |
+|---|---|
+| 100 Hz | 150 |
+| 200 Hz | 283 |
+| 1,000 Hz | 1,000 |
+| 4,000 Hz | 2,146 |
+| 8,000 Hz | 2,840 |
+
+Generalise the bend point f_b (700 in standard mel):
+```
+m_b(f) = A · log₁₀(1 + f/f_b)
+dm_b/df = A / (ln 10 · (f_b + f))
+f ≪ f_b:  dm/df ≈ constant           → linear: harmonic pattern STRETCHES with RPM
+f ≫ f_b:  dm/df ∝ 1/f, i.e. ∝ d(log f) → logarithmic: pattern SHIFTS with RPM
+```
+Standard mel is linear below ~700 Hz, which is where most drone fundamentals sit. Moving the bend to f_b ≈ 50 Hz (option B, D-23) makes the whole drone range logarithmic.
+
+#### 5.8.4 Resolution needed for a log-frequency front end [C] *(derived)*
+
+N bands spaced logarithmically from f_min to f_max:
+```
+band ratio      r = (f_max/f_min)^(1/N)
+band width      Δf(f) ≈ f · (r − 1)
+quality factor  Q = 1/(r − 1)
+50 → 14,000 Hz, N = 64:  r = 280^(1/64) ≈ 1.092,  Q ≈ 10.9,  Δf(50 Hz) ≈ 4.6 Hz
+```
+
+| Front end | Bin / window | Lowest bands | Pretraining kept |
+|---|---|---|---|
+| A. Stock log-mel (baseline) | 31.25 Hz bins, 32 ms | Linear below 700 Hz | Full |
+| B. Mel bent at 50 Hz, 64 bands, n_fft 4096, hop 320 | 7.8 Hz bins, 128 ms | Bottom ~6 bands share bins (interpolated) | Most (same 64 × T shape; relearn bn0) |
+| B′. Same with n_fft 8192 | 3.9 Hz bins, 256 ms | Fully resolved | Most |
+| C. Constant-Q transform, window T_k = Q/f_k | 0.22 s at 50 Hz, 11 ms at 1 kHz | Fully resolved, sharp in time at high f | Partial |
+
+FFT resolution: bin = sr/n_fft, so resolving 4.6 Hz needs n_fft ≥ 32,000/4.6 ≈ 6,960 → 8,192. Drone pitch and Doppler change over seconds, so 128–256 ms windows are acceptable for detection. **Plan:** A as the baseline, then B; B′ or C only if B falls short on the lowest classes (heavy two-strokes near 70 Hz).
+
+#### 5.8.5 Scope and outputs (D-26) [J]
+
+- **Now: detection only.** Is a drone present in each frame? Type identification comes later.
+- Output heads, per D-28: proposed **electric drone / engine / nothing** (per frame, sigmoid per class).
+- Fine-tuning recipe (unchanged from 5.7): replace the 527-class layer, relearn `bn0`, train the head frozen, then unfreeze deeper blocks at a low learning rate.
+- **Crops:** clips are long (full passes, 14.6). Train on random 10 s crops with their frame labels; run inference on the whole clip, since the network is fully convolutional in time.
+
+#### 5.8.6 Frame labels from the simulator [C]
+
+Each frame is labelled from the exact simulated SNR at the mic:
+```
+SNR_drone(frame) = 10 · log₁₀( E_drone / E_background )   over 50 Hz – 8 kHz, per 10 ms frame
+label = 1        if SNR_drone ≥ θ_hi
+label = ignore   if θ_lo ≤ SNR_drone < θ_hi       (barely audible: not scored, no gradient)
+label = 0        if SNR_drone < θ_lo
+starting values θ_hi = −10 dB, θ_lo = −20 dB   (estimate; narrowband drone tones are detectable well below 0 dB broadband SNR)
+```
+
+#### 5.8.7 Train and test protocol (D-25) [J], held-out design [C]
+
+**Joseph's decision [J]:** train on simulated data only (sim gave the best results in the drone tracker). Real testing uses **Joseph's own field recordings**: a mic set up, a drone flying over, checking whether it is picked up. These recordings are **never** used for training. This revises D-21 (fine-tuning on real recordings is deferred).
+
+| Split | Contents | Purpose |
+|---|---|---|
+| train | Simulated, randomised over all parameters | Learning |
+| val | Same distribution, different seeds | Early stopping, thresholds |
+| test-sim-held-out | **RPM beyond the training range**, rotor counts not seen in training, unseen background types, lower SNR | Tests whether the log conversion generalises. A sim test on the training distribution only proves the CNN learned the simulator. |
+| test-real | Joseph's field recordings (14.7) | The real answer |
+
+**Metrics**
+- Frame and event F1 (`sed_eval`).
+- **Detection range**: P(detect) against distance.
+- **False alarms per hour** on no-drone recordings.
+- Detection latency: how early in a pass the drone is first detected.
+
 ---
 
 ## 6. The time-frequency functional [J]
@@ -473,10 +657,97 @@ Not suitable: parabolic dishes and shotgun mics. A dish only helps when its diam
 
 ### 7.7 Mounting and calibration [C]
 
-- Pole-mounted 2–3 m above the ground, with a thin open frame.
+- Pole-mounted 2–3 m above the ground, with a thin open frame. **(v0.4: questioned; a pole puts ground-echo notches into the drone band. See 7.8.)**
 - Measure the built mic positions to about 1 mm.
 - **Level each array carefully.** A 1° tilt adds 1° to every elevation, about **1.9 m of height error at 100 m** *(derived)*. Calibrate with a drone flight that logs its own GPS position.
 - Survey the clusters' relative heights once (laser level or RTK GPS). Consumer GPS altitude is off by several metres.
+
+### 7.8 Flat clusters on the ground instead of a tetrahedron (D-30) [J], analysis [C]
+
+**Joseph's question [J]:** since velocity can be estimated, is a tetrahedron needed? He prefers to keep the microphones on one plane, or at least on the ground surface, even if not all at exactly the same level.
+
+**Answer [C]:** no, the tetrahedron is not strictly necessary. Flat clusters on the ground can give height. Their cost is poor elevation accuracy for drones far away and low in the sky; overlapping clusters and Doppler inside the Kalman filter recover most of that. **Status: proposed. The scenario simulator (14.6) will compare the layouts before anything is built.**
+
+**What a flat cluster measures** *(derived)*. A 4-mic square of half-side d at the ground, vertices (±d, ±d, 0):
+```
+Σ pᵢpᵢᵀ = diag(4d², 4d², 0)    → isotropic in the horizontal plane; measures u_x, u_y only
+u_z = +√(1 − u_x² − u_y²)         sign is known: the drone cannot be below the ground
+```
+The two v0.3 objections to flat arrays, re-checked for ground-level arrays:
+
+| Objection | Still a problem on the ground? |
+|---|---|
+| Cannot tell above from below | **No.** Below is physically impossible. The ground echo comes from the mirror direction, which has the same \|elevation\|, so it gives the same height. |
+| Poor accuracy near the horizon | **Yes.** This is the real cost. |
+
+**Elevation accuracy** (in units of the direction error σ_u):
+```
+flat:         el = acos(|u_h|)  →  σ_el ≈ σ_u / sin(el)
+tetrahedron:  el = asin(u_z)    →  σ_el ≈ σ_u / cos(el)
+equal at el = 45°
+```
+
+| Elevation | Flat | Tetrahedron |
+|---|---|---|
+| 10° | 5.8 σ_u | 1.0 σ_u |
+| 30° | 2.0 σ_u | 1.15 σ_u |
+| 45° | 1.4 σ_u | 1.4 σ_u |
+| 70° | 1.06 σ_u | 2.9 σ_u |
+
+**Flat clusters beat a tetrahedron above 45°.**
+
+**Height error from one cluster** (h = ρ·tan el):
+```
+σ_h ≈ ρ · sec²(el) · σ_el
+example ρ = 100 m, h = 30 m (el = 16.7°), σ_u = 0.02:
+  flat:         σ_el = 0.02/0.287 = 0.070 rad  →  σ_h ≈ 100 × 1.09 × 0.070 ≈ 7.6 m
+  tetrahedron:  σ_el = 0.02/0.958 = 0.021 rad  →  σ_h ≈ 2.2 m
+```
+
+**How a flat network gets height**
+1. **Overlap.** A drone far from one cluster (low angle) is close to another (steep angle). The EKF weights each measurement by its own accuracy, so the steep view dominates.
+   ```
+   hexagonal grid, spacing s: farthest point from any cluster = s/√3
+   want el ≥ 45° there, i.e. ρ ≤ h:   s ≤ √3 · h_min ≈ 1.73 · h_min
+   ```
+
+   | Lowest altitude h_min | Spacing s | Clusters per km² ≈ 10⁶ / ((√3/2)·s²) |
+   |---|---|---|
+   | 10 m | 17 m | ~4,000 |
+   | 30 m | 52 m | ~430 |
+   | 60 m | 104 m | ~110 |
+
+   Strict 45° coverage is expensive for low drones (see F3). In practice the EKF needs good height from a steep view only part of the time, so looser spacing may be enough; the simulator will tell.
+2. **Doppler and velocity [J].** Azimuths from several clusters give the ground track (ρ, ρ̇). The Doppler shift depends on ṙ, and r includes height:
+   ```
+   r = √(ρ² + h²),   ṙ = (ρ·ρ̇ + h·ḣ)/r
+   level flight (ḣ = 0):   h² = (ρ·ρ̇ / ṙ)² − ρ²
+   ```
+   Inside the EKF this enters automatically through ∂f/∂p (13.2). In the v0.3 simulation, Doppler improved position ~3× and velocity ~10×.
+3. **Optional: widely spaced single mics with GPS-synced clocks (TDOA).**
+   ```
+   τ_ij = (|p − m_i| − |p − m_j|)/c,     ∂τ_ij/∂z = (u_i,z − u_j,z)/c,   u_i,z = h/r_i
+   ```
+   Height sensitivity is large when the drone is above or inside the network and small far outside it. Needs about microsecond sync (GPS timing pulse) *(unverified for chosen modules)*.
+
+**Surface ("boundary") mounting helps** *(derived)*. A mic at height h_m hears the direct sound plus a ground echo with extra path
+```
+Δ = 2 · h_m · sin(el)
+first cancellation notch at  f₁ = c / (2Δ) = c / (4 · h_m · sin el)
+h_m = 2 m (pole), el = 30°:   Δ = 2 m    → f₁ ≈ 86 Hz   (inside the drone band)
+h_m = 1 cm (surface), el = 30°: Δ = 1 cm → f₁ ≈ 17 kHz  (above the band)
+```
+On the surface the echo arrives in phase, so the pressure doubles (**+6 dB**) with no notches in the drone band. Wind is also weaker at ground level. This **revises 7.7** (pole mounting at 2–3 m), which puts comb-filter notches into the band. Uneven ground is fine: survey each mic once, and height differences between clusters add a little vertical aperture.
+
+**Layouts to compare in simulation**
+
+| Layout | Height near a cluster | Height far away | Cost and complexity |
+|---|---|---|---|
+| Flat ground clusters (4 mics, square, 20–30 cm) | Good (better than tetrahedron above 45°) | Poor alone; helped by overlap + Doppler | Simplest to install |
+| Tetrahedron (D-07) | Good | Good | Needs a raised 4th mic, levelling |
+| Distributed single mics + GPS sync | Very good inside the network | Poor outside | Microsecond timing |
+
+D-07 (tetrahedron) is now **under review** pending this comparison.
 
 ---
 
@@ -796,6 +1067,87 @@ s = s⁻ + K·y,    P = (I − K·H)·P⁻·(I − K·H)ᵀ + K·R·Kᵀ   (Jose
 - Synthetic backgrounds and confusers are placeholders.
 - **D-18 (open):** if piston-engine drones are in scope, the lawnmower/motorbike "not drone" labels teach the wrong thing.
 
+### 14.6 Scenario simulator (D-29) [J], physics [C]
+
+**Joseph's idea [J]:** render whole scenarios. Put microphones at fixed positions, fly a drone over them, and record what each microphone hears, like the Blender scenes used for the drone tracker.
+
+The v0.3 simulator (14.2) made isolated 3 s clips. Its code was lost with the session folder (Appendix A), so it is rebuilt as a scenario simulator in `sim/`.
+
+**Scene contents**
+- Microphones at chosen 3D positions, including height above ground (surface or pole).
+- Any number of **sources**, each with a trajectory p(t), a sound generator and a label category: drone (electric / two-stroke), ground engine, vehicle, insect, fan, generator, bird, rain, wind, and so on.
+- Sources do not have to fly: a chainsaw is a source with a fixed position, a motorbike is a source moving along the ground.
+
+**Emission time** *(derived)*. Sound reaching mic m at time t left the source at τ, where
+```
+t = τ + |p(τ) − m| / c
+```
+Solved by fixed-point iteration τ ← t − |p(τ) − m|/c. This contracts with factor |v|/c (< 0.15 even at 50 m/s), so 3–4 iterations reach sub-microsecond accuracy.
+
+**Received signal**
+```
+x_m(t) = D(θ, τ) · s(τ) / r(τ)                      direct path
+       + R_g · D(θ′, τ′) · s(τ′) / r′(τ′)            ground reflection (image source at (x, y, −z))
+       + Σ backgrounds + wind_m(t) + self-noise_m(t)
+then air absorption applied per path as a time-varying filter
+```
+- **Doppler appears automatically.** dτ/dt = 1/(1 + ṙ/c), so a tone emitted at f₀ is received at f₀/(1 + ṙ/c), the same model as the EKF (13.2). Nothing Doppler-specific is coded.
+- **Spherical spreading** 1/r, in pascals, with source level L_src at 1 m.
+- **Fractional delay:** s(τ) is rendered on a uniform source-time grid and read at the non-integer τ by 4-point cubic (Lagrange) interpolation.
+- **Air absorption:** α(f) from ISO 9613-1 (temperature and humidity randomised) applied per STFT frame as gain 10^(−α(f)·r/20). Distant drones lose their high harmonics first.
+- **Ground:** reflection factor R_g randomised from soft (grass, ~0.5) to hard (asphalt, ~1.0). Mic height randomised, mostly surface (1–5 cm, D-30) with some poles (1–3 m), so both cases are covered.
+- **Directivity:** rotors are louder in some directions. Modelled as D(θ) = 1 + β·cos²θ with θ measured from the rotor axis, β randomised (estimate).
+
+**Diffuse backgrounds** (wind in trees, traffic rumble, rain) are rendered as about 8 plane waves from random directions near the horizon, each carrying independent noise with the same spectrum. This gives the correct correlation between nearby mics automatically. For a spherically isotropic field the coherence between two mics d apart is
+```
+γ(f) = sin(k·d) / (k·d),     k = 2πf/c
+```
+which matters for direction finding later. Wind noise at the mic is independent per mic (turbulence at the windshield).
+
+**Calibrated levels.** Audio is stored in pascals with a fixed full scale (110 dB SPL), 24-bit, so **distance is still audible in loudness** (fixing the 14.5 / section 11 problem). Gain is randomised only at training time.
+
+**Clip length [J]:** long enough to hear the **entire pass**. A pass starts and ends where the drone is far enough to be barely audible:
+```
+duration = path length / speed,   path from −R_far to +R_far along the track
+R_far ≈ 250–600 m depending on class loudness  →  typical clips 20–120 s
+```
+Hover, orbit and loiter scenarios are capped at 120 s.
+
+**Scenario families**
+
+| Family | Description |
+|---|---|
+| Flyover | Straight pass, closest horizontal distance 0–300 m, class-dependent altitude and speed |
+| Approach–hover–depart | Electric and two-stroke multirotors only |
+| Orbit / loiter | Circle at a random radius around a point |
+| Random waypoints | Turns, climbs, descents; RPM follows thrust (climb → RPM up) |
+| Fixed-wing pass | Two-stroke fixed-wing: 20–45 m/s, never hovers |
+| No drone | Backgrounds and confusers only (about 25% of scenes) |
+
+**Physics of the drone flight → RPM** *(derived, simplified)*. Hover thrust T = m·g split over N rotors, thrust ∝ ω², so ω_hover ∝ √(m·g/N). Climbing at acceleration a scales thrust by (g + a)/g, so RPM scales by √((g + a)/g). Forward flight tilts the drone: front and rear rotors split by a few percent.
+
+**Labels per 10 ms frame** (stored next to each clip): per-source SNR at each mic (5.8.6), distance, elevation, radial velocity ṙ, emitted f₀ and received f₀, and the source category. Any of the D-28 labelling options can be built from these.
+
+**Randomised every scene ("domain randomisation")**: class, size, blade count, rotor count, RPM and wander, harmonic amplitude shape, whine pole pairs, source level, directivity, trajectory, speed, altitude, ground type, mic height, temperature and humidity, background mix and level (35–70 dBA), confusers, wind.
+
+**Held out for test-sim-held-out (5.8.7):** RPM above the training range for each class, 7- and 5-rotor configurations, one background family, and SNRs below the training minimum.
+
+### 14.7 Field test protocol (D-31) [J], details [C]
+
+**Joseph's plan [J]:** set up the microphone, fly a drone over, and check whether it is picked up.
+
+| Recording | Tells us |
+|---|---|
+| Drone flying over | Detections and misses |
+| Same place, **no drone** | False alarms. Without this, a detector that always says "drone" would pass. |
+| No drone, with a car, mower, chainsaw or fan nearby | Confusion with similar sounds |
+
+- **Ground truth:** the drone's flight log (GPS and time), or spoken "drone up / drone down" markers on the recording.
+- **Distances:** passes at roughly 10, 30, 60 and 100 m, to get a detection-range curve (detects up to X m). That number sets the cluster spacing.
+- **Microphone:** one mic is enough for detection. WAV, ≥ 32 kHz, uncompressed, windshield, the same gain for every session. If possible, also record a calibration tone or note the mic's sensitivity, so levels can be compared with the simulator.
+- **Fair test:** the simulator's class ranges must contain the test drone's prop size, blade count and RPM, but the simulator is not tuned to that drone.
+- The recordings are never used for training (D-25).
+
 ---
 
 ## 15. Known errors and corrections during the design
@@ -810,6 +1162,8 @@ Recorded so that similar mistakes are easier to spot.
 | Kalman tuning | q_f0 too low; RPM jump read as vertical motion | q_f0 = 100 |
 | Mast cluster | Helped in the snapshot test, not in the filter | Left optional; cause unconfirmed |
 | Example captions | Three captions claimed more than the spectrograms showed | Re-picked examples, rewrote captions |
+| Design v0.3, D-22 | Called for a "frame-level 16 kHz" CNN14; no such checkpoint exists (16 kHz is clip-level only) | Use NeMo's `Cnn14_DecisionLevelMax` at 32 kHz; render at 32 kHz |
+| Appendix A prototype code | Kept only in a temporary session folder, which was later deleted | Rebuilt in the repo (`sim/`); anything worth keeping now goes into git |
 | "Noise sound database from a sponsor" | Searched the event page, Gmail (student account) and Drive; nothing found | Unresolved; public datasets listed in section 18 |
 
 ---
@@ -831,10 +1185,10 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 
 | # | Flaw | Why it matters | Affects | Origin | Fix |
 |---|---|---|---|---|---|
-| F1 | **No validation on real audio.** All accuracy figures come from Claude's simulator, tested against itself (clean comb, omnidirectional source, no echoes, no wind) | Sub-metre position, 0.1 m/s velocity, 0.3 m height and 0.2 Hz tracking are best-case and may be far off | D-12 to D-16 | [C] | Record a real drone with a GPS log using one or two prototype clusters; measure actual errors first |
+| F1 | **No validation on real audio.** All accuracy figures come from Claude's simulator, tested against itself (clean comb, omnidirectional source, no echoes, no wind) | Sub-metre position, 0.1 m/s velocity, 0.3 m height and 0.2 Hz tracking are best-case and may be far off | D-12 to D-16 | [C] | Record a real drone with a GPS log using one or two prototype clusters; measure actual errors first. v0.4: Joseph's field recordings are now the planned test (D-25, 14.7) |
 | F2 | **A multirotor has no single f₀.** Each rotor has its own BPF, a few % apart, changing constantly (that is how it steers) | Doppler differences between clusters are also only a few % (up to ~2v/c ≈ 7% at 12 m/s). If clusters lock onto different rotors' lines, the error is as large as the signal. The Kalman simulation used one clean tone | D-13, D-16, 9.5 | [C] | Model rotor lines separately, or track each harmonic's line-group centre; re-run simulations with rotor spread |
 | F3 | **Coverage needs many clusters.** Each covers a hexagon of (√3/2)·s². 1 km² needs ~115 clusters at s = 100 m, ~460 at s = 50 m. Urban range ~20–50 m | Cost and maintenance (power, network, weatherproofing, levelling, surveying). The range itself rests on assumed numbers (80 dB at 1 m, G = 10–20 dB) | D-06, D-09 | Range numbers [C]; layout [J] | Measure real range first; scope to protected sites rather than open-area coverage |
-| F4 | **Direction accuracy is assumed** (σ_u = 0.02, σ_τ = 10 µs) | Tonal signals give repeating GCC-PHAT peaks (ambiguous direction). At 60 Hz, λ = 5.7 m is ~30× the array size. FPV BPF (≥ 750 Hz) is near the 860 Hz alias limit | D-08, D-14 | [C] | Test direction finding on real drone audio with the real array; use the broadband component too; consider a second smaller array or a larger aperture with more mics |
+| F4 | **Direction accuracy is assumed** (σ_u = 0.02, σ_τ = 10 µs) | Tonal signals give repeating GCC-PHAT peaks (ambiguous direction). At 60 Hz, λ = 5.7 m is ~30× the array size. FPV BPF (≥ 750 Hz) is near the 860 Hz alias limit | D-08, D-14 | [C] | Test direction finding on real drone audio with the real array; use the broadband component too; consider a second smaller array or a larger aperture with more mics. v0.4: flat ground clusters (D-30) are worse than a tetrahedron below 45° elevation |
 
 ### 16.2 Significant: needs design work
 
@@ -868,12 +1222,18 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 7. Collect real recordings per drone model for type identification (D-05).
 8. Decide whether a mast cluster is worthwhile, using real data.
 9. Test D-19: train the same CNN on linear vs log-frequency input and compare accuracy on real recordings, especially at RPMs not seen in training.
-10. Check whether `~/drone18_field_test` and `~/field_recorder` contain real drone recordings usable for fine-tuning and testing (D-21). Not yet opened.
+10. ~~Check `~/drone18_field_test` and `~/field_recorder`~~ Checked 2026-10-22: neither folder exists. Real test data will be Joseph's own recordings (D-25).
 11. Re-run the velocity and Kalman simulations with per-rotor lines (F2).
 12. Add multi-target tracking, emission-time correction and gating to the Kalman filter (F6, F7).
 13. Fine-tune CNN14 with front ends A and B and compare on real recordings (D-22, D-23).
 14. ~~Confirm CNN14's `bn0` layout~~ Done: per-band BatchNorm2d(64), confirmed in the official code.
 15. Get advice on recording-law requirements before any public deployment (F10).
+16. **D-28:** choose how two-stroke drones are separated from chainsaws and other ground engines (proposed: electric drone / engine / nothing).
+17. Are the two-stroke drones fixed-wing or multirotor? (Both are rendered until decided.)
+18. Which drone and which microphone for the field test (14.7)? Check that the drone sits inside the simulated class ranges.
+19. Compare flat ground clusters, tetrahedra and distributed GPS-synced mics in the scenario simulator: height error vs distance and cluster spacing (D-30).
+20. Tune the frame-label SNR thresholds θ_hi, θ_lo (5.8.6) against what a person can hear in the rendered clips.
+21. Decide whether real recorded backgrounds (not drones) may be mixed into training, if the purely synthetic backgrounds turn out too clean.
 
 ---
 
@@ -907,7 +1267,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 
 ## Appendix A: prototype code
 
-Written during the discussion in a temporary session folder; **copy these somewhere permanent if you want to keep them**:
+**Lost (checked 2026-10-22): the session folder no longer exists.** The simulator is rebuilt in the repo under `sim/` (14.6). Original location, for the record:
 `/tmp/claude-1000/-home-quail/13037ded-e6b5-4d0b-a991-c21a656b52b4/scratchpad/`
 
 | File | Contents |
