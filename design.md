@@ -1,6 +1,7 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.6, 2026-10-23.
+- **Status:** draft v0.7, 2026-10-23.
+  - v0.7 records Joseph's decisions: **all drones count** (D-18), **no real negatives in training** so the detector stays sensitive (D-25, open question 21), **alert on every engine and rate it** (D-28). Adds the drone-likelihood rating stage (D-32, section 5.12) and recall-first tuning (D-33). UPGRADES.md re-prioritised.
   - v0.6 compares the v0.5 results with the theory (5.11): what matched, three deviations (model relies on > 1 kHz; real range shorter than estimated, G ≈ 2–7 dB; log vs mel draw in sim), and what is still untested. Updates 8.3, F3, section 15, open questions and the Al-Emadi licence caveat (18).
   - v0.5 adds a failure analysis of model B (5.10): real-sound false alarms (critical), codec and high-pass sensitivity, moving engines, masking, real detection range ~150 m.
   - v0.5 records the first trained models and how to replicate them: the 6,400-scene sim_v1 dataset, the frame-label rule actually used (`snr_lines2`, 5.8.6), the training recipe, results for CNN14 + log-frequency (B), CNN14 + stock mel (A) and a small CNN trained from scratch (C), and the fixes found by code review (5.9). Full scale changed to 120 dB SPL (14.6). Replication steps are in README.md; AGENTS.md is the test checklist.
@@ -114,20 +115,22 @@ SERVER                                                     [J] server + CNN
 | D-15 | Towards/away is decided from the **tracked position**, with the frequency gradient as a supporting cue | [J] triangulation; [C revises J] | derived | D-11, D-12 | Proposed |
 | D-16 | Velocity from **Doppler at several clusters at once** (inside the Kalman filter) | [C] | simulated | D-12 | Proposed |
 | D-17 | Train with **simulated drone audio**, test on real recordings | [J] simulate; [C] split | simulated | D-02 | Adopted; detailed by D-25 |
-| D-18 | Which drone types are in scope (affects whether lawnmower/motorbike sounds are "not drone") | [J] | — | D-04, D-17 | **Resolved by D-27** (airframe of two-strokes still open) |
+| D-18 | Which drone types are in scope (affects whether lawnmower/motorbike sounds are "not drone") | [J] | — | D-04, D-17 | **Resolved (v0.7): all drones count**: electric and engine, multirotor and fixed-wing [J]. Classes per D-27 |
 | D-19 | CNN input is a **converted view**: a **log-frequency spectrogram with loudness in dB** | [J] converted view; [C] log axis | derived; not yet tested on a CNN | D-02 | **Adopted** |
 | D-20 | Feed several views: log spectrogram, harmonic-salience map, per-frame features, optionally beamformed audio | [J] converted view; [C] specific views | open | D-03, D-19 | Proposed |
 | D-21 | Training data: widely varied simulated drones on real backgrounds, then fine-tune and test on real recordings; type identification from real per-model recordings | [J] simulated; [C] mix and order | open | D-05, D-17 | **Revised by D-25** (no real fine-tuning for now) |
 | D-22 | Start from **pretrained CNN14 as shipped by NeMo Curator: `Cnn14_DecisionLevelMax` (32 kHz, frame-level)**, fine-tuned on simulated (rendered) audio converted to a log-frequency spectrogram. v0.3's "frame-level 16 kHz" checkpoint does not exist | [J]; checkpoint [C] | checkpoint verified; not trained yet | D-02, D-19, D-21 | **Adopted (revised v0.4)** |
 | D-23 | CNN14 front end: start with stock log-mel as a baseline, then a mel scale with a lower bend point (log-spaced from ~50 Hz), longer window (n_fft 4096 at 32 kHz; 5.8.4) | [C] | derived; not tested | D-19, D-22 | Proposed |
 | D-24 | **Render time-domain audio, then apply the same conversion as for real mic audio**; never synthesise spectrograms directly | [J←C] | derived | D-19, D-22 | **Adopted** |
-| D-25 | **Train on simulated data only; test on Joseph's own field recordings** (never trained on), plus a harder held-out sim test set | [J]; held-out design [C] | open | D-17, D-21 | **Adopted** |
+| D-25 | **Train on simulated data only; test on Joseph's own field recordings** (never trained on), plus a harder held-out sim test set | [J]; held-out design [C] | open | D-17, D-21 | **Adopted.** v0.7: real audio is not used as training negatives either (open question 21 closed) [J], so the detector is not made over-cautious; false alarms are handled by D-32 |
 | D-26 | First CNN does **detection only** (no type identification) | [J] | — | D-02, D-04 | **Adopted** |
 | D-27 | Drone classes: **5–7" FPV, 7–12" electric, ~10"+ two-stroke petrol** | [J]; sound models [C] | estimate | D-18 | **Adopted** |
-| D-28 | Handling two-stroke drones vs ground engines: proposed 3 outputs, electric drone / engine / nothing | [C] | open | D-26, D-27 | **Open** (labels kept for all options) |
+| D-28 | Handling two-stroke drones vs ground engines: proposed 3 outputs, electric drone / engine / nothing | [C] proposal; [J] resolution | — | D-26, D-27 | **Resolved (v0.7):** alert on **every** engine sound; the D-32 rating marks low, slow engines as probably ground engines (chainsaw, mower) [J] |
 | D-29 | Data comes from a **scenario simulator**: mics at fixed positions, sources flying trajectories, propagation physics per mic, long clips covering whole passes | [J] idea; [C] physics | derived; not validated | D-17, D-24 | **Adopted** |
 | D-30 | Mic clusters **flat, on the ground surface**; height from overlapping clusters + Doppler in the EKF (instead of a tetrahedron) | [J] idea; [C] analysis | derived; to be simulated | D-07, D-09, D-12, D-14 | Proposed |
 | D-31 | Field test protocol: drone passes at several distances with a flight log, plus no-drone and confuser recordings | [J] test; [C] protocol | — | D-25 | Proposed |
+| D-32 | **Drone-likelihood rating** after the CNN: every alert is scored from CNN probability × height × speed × persistence; **low and slow → probably not a drone** | [J] rule; [C] factors and thresholds | open: thresholds to tune | D-12, D-14, D-28, D-07/D-30 | **Adopted** (5.12) |
+| D-33 | Detector tuned for **recall**: drone thresholds near 0.5; release gate on recall (all Svanström drone clips detected, IDMT ≤ 50 m ≥ 95 %); false-alarm rate reported but not a gate | [J] intent; [C] numbers | — | D-25, D-32 | **Adopted** (5.12) |
 
 ---
 
@@ -225,7 +228,9 @@ Low harmonics stay as sharp lines and high harmonics smear into noise. A 2-blade
 | Character | Smooth hum and whine | Harsh rasp (chainsaw, moped) |
 | Throttle | Each rotor changes separately (that is how it steers) | Whole comb slides together |
 
-**Confusion with ground engines (D-28, open).** Chainsaws, leaf blowers, mopeds and lawnmowers use the same kind of engine, so on one mic they can sound almost the same as a two-stroke drone. Options:
+**Resolved (v0.7) [J]:** alert on every engine, and let the D-32 rating (5.12) separate them afterwards: an engine that is **low and slow** is probably a chainsaw or mower. Closest to option 2 below.
+
+**Confusion with ground engines (D-28).** Chainsaws, leaf blowers, mopeds and lawnmowers use the same kind of engine, so on one mic they can sound almost the same as a two-stroke drone. Options:
 1. Label ground two-strokes "not drone" and let the CNN look for subtle cues (prop tone over the engine, smooth airborne throttle vs stop-start revving). Risk: missing real two-stroke drones.
 2. **Proposed:** three outputs, **electric drone / engine / nothing**. "Engine" means "could be a drone"; the array decides later (an engine up in the air is a drone).
 3. Leave ground engines out, so every engine is a drone. Simple, but false alarms near gardens and roads.
@@ -736,6 +741,80 @@ A check of the v0.5 results (5.9, 5.10, `results/real_world/REAL_TESTS.md`) agai
 #### 5.11.5 Summary
 
 The detection results fit the theory: the predicted risks (tonal false alarms, type confusion, masking) all appeared. The useful new information is in the deviations. The model relies on content above 1 kHz, and the real range implies a much smaller detection margin (G ≈ 2–7 dB). These change the range model and cluster spacing, and partly explain why log vs mel was a draw.
+
+### 5.12 Drone-likelihood rating and recall-first tuning (D-32, D-33)
+
+#### 5.12.1 Joseph's decisions [J]
+
+Paraphrased, 2026-10-23:
+
+> **All drones count.** Don't train on real negatives: it would make the model **too shy**. Engine noises in general can still be detected and pinged, and treated as more likely a chainsaw, lawnmower or similar. Run every alert through a **probability rating**: if it is **too low and too slow**, it is unlikely to be a drone.
+
+The design is now a **sensitive detector followed by a stricter check**. The CNN catches everything that might be a drone. The rating stage decides how likely each alert is to be one.
+
+#### 5.12.2 The rating [C detail under J]
+
+```
+drone likelihood = p_CNN × f_height × f_speed × f_persist
+```
+
+Each factor lies between 0 and 1. Starting values *(estimate; to be tuned in sim, then on field data)*:
+
+| Factor | Drone-like (→ 1) | Ground-like (→ low) | Source of the number |
+|---|---|---|---|
+| f_height | Clearly airborne, above ~5–10 m | Near the ground, below ~3 m | Elevation angle (one tetrahedral cluster) or triangulated height (EKF) |
+| f_speed | Moving: hover with drift, or 2–25 m/s | Stationary or walking pace (chainsaw ~0, mower ~1 m/s) | EKF track (needs range: two clusters, or Doppler/level) |
+| f_persist | Continuous for ≥ 2 s; comb moving smoothly | Short, erratic or stop-start (revving, calls, voices) | CNN output over time; comb tracker (5.2, 6) |
+
+**Alert levels** *(proposed)*:
+- **Drone likely:** high likelihood → high-priority alert.
+- **Possible drone:** CNN fired, but no position yet (single cluster or no elevation).
+- **Probably ground engine / other:** low and slow, or short and erratic → logged at low priority, never discarded.
+
+**Examples**
+
+| Source | Height | Speed | Persistence | Rating |
+|---|---|---|---|---|
+| Chainsaw | Low | Stationary | Revving, stop-start | Probably ground engine |
+| Lawnmower | Low | ~1 m/s | Steady | Probably ground engine |
+| Moped | Low | Fast | Steady | Probably ground engine (height decides) |
+| Two-stroke drone | Airborne | Moving | Steady | Drone likely |
+| Crow, voice, horn (W1) | Mostly low | Mostly stationary | Short, erratic | Probably other |
+| Hovering electric drone | Airborne | ~0 | Steady | Drone likely (height decides) |
+
+The rating also addresses the electric-head false alarms on everyday sounds (W1). It replaces the real-negative training that D-25 rules out.
+
+#### 5.12.3 Height from a single cluster *(derived)*
+
+A ground source is seen at about 0° elevation (slightly below, for a mic on a pole). A drone at height h and horizontal distance ρ is at:
+```
+el = atan(h / ρ)        h = 10 m, ρ = 100 m  →  el ≈ 5.7°
+```
+
+| Cluster type | Elevation error near the horizon (σ_u ≈ 0.02) | Tell 0° from 5.7°? |
+|---|---|---|
+| **Tetrahedron (D-07)** | σ_el ≈ σ_u / cos(el) ≈ 0.02 rad ≈ 1.1° | Yes: about 5 standard deviations |
+| Flat ground cluster (D-30) | σ_el ≈ σ_u / sin(el) ≈ 0.02 / 0.10 ≈ 0.2 rad ≈ 11° | No |
+
+So the single-cluster "low" clue **needs the tetrahedron**. With flat clusters (D-30), height comes only from two or more clusters plus Doppler in the EKF. This is an input to the D-07 vs D-30 choice (open question 29). **"Slow" always needs range**, from two clusters, or roughly from Doppler or level.
+
+#### 5.12.4 Recall-first tuning (D-33)
+
+- **Thresholds:** drone heads near 0.5, not the F1-optimal ~0.7 (W8). The rating stage handles the extra alerts.
+- **Release gate:**
+  - all 30 Svanström drone clips produce an event;
+  - IDMT any-drone frames within 50 m ≥ 95 %;
+  - sim recall not below v0.5.
+- **False-alarm rate** (ESC-50, Svanström backgrounds, sim drone-free scenes) is **reported for every model but is not a gate**.
+
+#### 5.12.5 Dependency and plan
+
+Height and speed come from the localisation half (tetrahedra, triangulation, EKF), which is **not yet tested on real data** (5.11.4). Until it works, only p_CNN and f_persist are available, so **single-mic false alarms stay high** (76–87 % of non-drone clips in the real tests).
+
+Plan:
+1. Build and tune the rating in the scenario simulator, where true height and speed are known (open question 28).
+2. Measure real elevation accuracy on the IDMT 8-channel recordings (open question 25), which decides whether f_height works from one cluster.
+3. Apply it to field data (14.7).
 
 ---
 
@@ -1422,7 +1501,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 
 ## 17. Open questions and next steps
 
-1. **D-18:** which drone types must be detected (consumer/FPV multirotors only, or also fixed-wing and piston)?
+1. ~~**D-18:** which drone types must be detected?~~ Resolved v0.7: all drones count [J].
 2. Pick and test the 4-channel synchronous audio hardware for the tetrahedron.
 3. Measure real σ_u, σ_f and detection range G with a built cluster and a GPS-logged drone flight.
 4. Add sound-delay correction, initialisation and multi-drone data association to the Kalman filter.
@@ -1437,18 +1516,20 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 13. Fine-tune CNN14 with front ends A and B and compare on real recordings (D-22, D-23). v0.5: trained and compared on sim (5.9, roughly a draw); real recordings still needed.
 14. ~~Confirm CNN14's `bn0` layout~~ Done: per-band BatchNorm2d(64), confirmed in the official code.
 15. Get advice on recording-law requirements before any public deployment (F10).
-16. **D-28:** choose how two-stroke drones are separated from chainsaws and other ground engines (proposed: electric drone / engine / nothing).
+16. ~~**D-28:** separating two-stroke drones from ground engines~~ Resolved v0.7: alert on every engine; the D-32 rating separates them [J].
 17. Are the two-stroke drones fixed-wing or multirotor? (Both are rendered until decided.)
 18. Which drone and which microphone for the field test (14.7)? Check that the drone sits inside the simulated class ranges.
 19. Compare flat ground clusters, tetrahedra and distributed GPS-synced mics in the scenario simulator: height error vs distance and cluster spacing (D-30).
 20. Tune the frame-label thresholds (v0.5 rule: 2nd tone region ≥ 6 dB positive, 1st < 0 dB negative, 5.8.6) against what a person can hear in the rendered clips.
-21. Decide whether real recorded backgrounds (not drones) may be mixed into training, if the purely synthetic backgrounds turn out too clean.
+21. ~~Real recorded backgrounds in training?~~ Resolved v0.7: no; training stays sim-only so the detector is not made over-cautious (D-25, D-33) [J].
 22. Explain the 76 % electric-drone detection at 0–25 m (5.9.4): metric or model?
-23. Decide how to score drone_engine against ground engines (≈ 28 false engine-drone alarms per hour on drone-free scenes, mostly chainsaws and blowers; D-28).
+23. ~~Scoring drone_engine against ground engines~~ Resolved v0.7: engine alerts are kept and rated by D-32 (low and slow → probably ground engine).
 24. Run B and A on Joseph's flyover recordings (14.7) with `cnn/infer.py`.
 25. Test direction finding (GCC-PHAT) on the IDMT 8-channel array recordings against their GPS positions: the first real check of F4 and D-14 (5.11.4).
 26. Does the electric head's reliance on > 1 kHz (5.11.2) cost range or noise robustness? Test band-limited inputs and real tonal negatives above 1 kHz.
 27. Measure real drone source levels (L_src at 1 m) from the IDMT recordings and GPS distances, to separate "quiet source" from "small G" in 5.11.3.
+28. Build the D-32 rating in the scenario simulator (true height and speed known) and tune its thresholds; report the false-alarm reduction and any recall lost.
+29. Choose tetrahedra (D-07) or flat ground clusters (D-30): D-32's single-cluster height clue only works with the tetrahedron (5.12.3).
 
 ---
 

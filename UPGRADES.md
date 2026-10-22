@@ -38,18 +38,27 @@ Real recordings are used for testing only, never for training (design D-25).
 
 ## Upgrades, in order of value
 
+Re-prioritised 2026-10-23 after Joseph's decisions (design.md v0.7, section 5.12):
+- **All drones count** (D-18).
+- **No real negatives in training**, so the detector stays sensitive (D-25, D-33).
+- **Alert on every engine**, then rate each alert: low and slow means probably not a drone (D-28, D-32).
+
 | Priority | Upgrade | Fixes | Effort | Needs a decision? |
 |---|---|---|---|---|
-| 1 | **Many more varied negatives in training.** Real non-drone sound (voices, animals, alarms, water, clicks, ambience) mixed into scenes as backgrounds and confusers, or many more synthetic negative families. Candidates with clean licences: FSD50K (CC BY / CC0 clips only), own ambient recordings | #1, part of #3 | Medium: a data loader for external clips plus a retrain (~6 h on Anna's 3080) | **Yes**: open question 21 / D-25 (real audio as training *negatives*) |
-| 2 | **Hard-negative test gate.** Before any model ships: ESC-50 event rate < 10 % and Svanström no-motor background < 10 %, alongside the sim F1 | Stops #1 regressing | Small | No |
+| 1 | **Drone-likelihood rating stage (D-32).** Score every alert as CNN probability × height × speed × persistence; low and slow → probably a ground engine or other sound. Build and tune it in the scenario simulator first, where true height and speed are known (design 5.12) | #1 and #3, downstream, without making the CNN cautious | Medium: new module + sim evaluation | No (decided); thresholds to tune |
+| 2 | **Recall gate (D-33).** Before any model ships: all 30 Svanström drone clips produce an event; IDMT any-drone frames ≥ 95 % within 50 m; sim recall not below v0.5. Report the ESC-50 and Svanström-background false-alarm rates for every model, but don't block on them | Stops recall regressing | Small | No |
 | 3 | **Recording-chain augmentation.** Random MP3/Opus round trips, high-pass 50–500 Hz, low-pass 4–16 kHz, preamp noise 30–55 dBA, mic tilt ±6 dB/decade | #2 | Small: augmentation code only | No |
-| 4 | **Calibrate thresholds.** Pick per-head thresholds on val (≈ 0.7 / 0.7 / 0.9) or temperature-scale; ship them in the checkpoint | #8, part of #1 | Tiny | No |
-| 5 | **Moving-engine negatives + decide D-28.** More drone-free scenes with mopeds, light aircraft, helicopters, mowers. If D-28 option 2 is chosen ("any engine" = max of the two engine heads), most of #3 stops mattering | #3 | Small | **Yes**: D-28 |
-| 6 | **Oversample hard mixtures.** Drone under a loud tonal interferer, two drones, 65–75 dBA backgrounds | #4, #7 | Small: sampler weights | No |
-| 7 | **Widen the mid class.** Lower tip speeds (4,000–7,500 RPM, 2-blade large props) so slow electric drones stop looking like engines | #6 | Small | No |
-| 8 | **Field-validate range.** The user's own flyovers, with a flight log, give the real detection-vs-distance curve that sets cluster spacing | #5 | Field day | No |
+| 4 | **Thresholds for recall.** Keep the drone heads near 0.5, not the F1-optimal ~0.7; calibrate (temperature-scale) so the probabilities feed the rating stage sensibly | #8 | Tiny | No |
+| 5 | **Oversample hard mixtures.** Drone under a loud tonal interferer, two drones, 65–75 dBA backgrounds | #4, #7 | Small: sampler weights | No |
+| 6 | **Widen the mid class.** Lower tip speeds (4,000–7,500 RPM, 2-blade large props) so slow electric drones stop looking like engines | #6 | Small | No |
+| 7 | **Field-validate range.** The user's own flyovers, with a flight log, give the real detection-vs-distance curve that sets cluster spacing | #5 | Field day | No |
 
-Upgrades 2–4, 6 and 7 can go into one retrain. Upgrade 1 is the one that matters most and needs the D-25/Q21 decision first.
+**Dropped (v0.7):**
+- ~~Real non-drone sounds as training negatives~~: D-25, it would make the detector over-cautious. Replaced by priority 1.
+- ~~More moving-engine negatives~~: D-28, every engine is alerted and the rating separates ground engines.
+- ~~ESC-50 < 10 % as a release gate~~: replaced by the recall gate (priority 2).
+
+Upgrades 2–6 can go into one retrain. Priority 1 runs after the CNN and needs no retrain, but its height and speed inputs come from the localisation work (design 5.12.5). With a single mic only the CNN probability and persistence are available, so **false alarms stay high until localisation works**.
 
 ## Not finished
 
