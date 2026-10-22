@@ -74,6 +74,7 @@ def main():
             f.flush()
             if done % 10 == 0 or status.startswith("error"):
                 print(f"{done}/{len(jobs)} {name} {status[:200]} {secs:.1f}s elapsed {time.time() - t0:.0f}s", flush=True)
+    print(f"DONE {done}/{len(jobs)} elapsed {time.time() - t0:.0f}s", flush=True)
 
 
 if __name__ == "__main__":
