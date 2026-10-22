@@ -37,7 +37,7 @@ rm data/sim_v1_local.tar
 
 log "pulling the Windows PC's scenes"
 ssh pc2 "cd \"$PC2\\data\"; tar -cf sim_v1_pc2.tar sim_v1" || exit 1
-scp -q "pc2:\"work/audiodrone/data/sim_v1_pc2.tar\"" data/ || exit 1
+scp -q -T "pc2:\"work/audiodrone/data/sim_v1_pc2.tar\"" data/ || exit 1
 tar -xf data/sim_v1_pc2.tar -C data && rm data/sim_v1_pc2.tar
 ssh pc2 "Remove-Item \"$PC2\\data\\sim_v1_pc2.tar\""
 check_labels || exit 1
@@ -57,6 +57,6 @@ log "waiting for the Windows PC's runs"
 until ssh -o ConnectTimeout=10 pc2 "Test-Path \"$PC2\\runs\\PC2_DONE\"" 2>/dev/null | grep -q True; do sleep 300; done
 for r in B_logf A_mel; do
   mkdir -p runs/$r
-  scp -q "pc2:\"work/audiodrone/runs/$r/*\"" runs/$r/ && scp -q "pc2:\"work/audiodrone/runs/$r.*\"" runs/ || log "pull $r FAILED"
+  scp -q -T "pc2:\"work/audiodrone/runs/$r/*\"" runs/$r/ && scp -q -T "pc2:\"work/audiodrone/runs/$r.*\"" runs/ || log "pull $r FAILED"
 done
 log "all done"

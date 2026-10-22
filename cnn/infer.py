@@ -31,6 +31,7 @@ def main():
     ap.add_argument("--arch", default="cnn14", choices=["cnn14", "small"])
     ap.add_argument("--channel", type=int, default=0)
     ap.add_argument("--threshold", type=float, default=0.5)
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args()
 
     x, sr = sf.read(a.wav, dtype="float32", always_2d=True)
@@ -38,9 +39,9 @@ def main():
     if sr != SR:
         g = np.gcd(sr, SR)
         x = signal.resample_poly(x, SR // g, sr // g).astype(np.float32)
-    model = (DroneCNN14(a.frontend) if a.arch == "cnn14" else SmallCNN(a.frontend)).cuda().eval()
-    model.load_state_dict(torch.load(a.model, map_location="cuda"))
-    probs = predict(model, x, "cuda")
+    model = (DroneCNN14(a.frontend) if a.arch == "cnn14" else SmallCNN(a.frontend)).to(a.device).eval()
+    model.load_state_dict(torch.load(a.model, map_location=a.device))
+    probs = predict(model, x, a.device)
 
     out = Path(a.wav).with_suffix("")
     rows = ["class,start_s,end_s,max_prob"]

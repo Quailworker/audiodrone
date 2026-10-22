@@ -1,0 +1,183 @@
+train scenes 5400  val scenes 300
+step 100/16500 loss 0.7100 0.24s/step
+step 200/16500 loss 0.6714 0.17s/step
+step 300/16500 loss 0.6439 0.15s/step
+step 400/16500 loss 0.5867 0.14s/step
+step 500/16500 loss 0.5833 0.13s/step
+step 600/16500 loss 0.5514 0.13s/step
+step 700/16500 loss 0.5273 0.12s/step
+step 800/16500 loss 0.5164 0.12s/step
+step 900/16500 loss 0.4899 0.12s/step
+step 1000/16500 loss 0.4639 0.12s/step
+EVAL {"loss": 0.292455812033854, "f1/drone_electric": 0.616251421482477, "f1/drone_engine": 0.7342283344247981, "f1/ground_engine": 0.645833580030551, "prec/drone_electric": 0.8598009519688447, "prec/drone_engine": 0.66033702350439, "prec/ground_engine": 0.5124976508175155, "rec/drone_electric": 0.48022234753887055, "rec/drone_engine": 0.8267400417855826, "rec/ground_engine": 0.8729472774416595, "step": 1000, "mean_f1": 0.665437778645942}
+step 1100/16500 loss 0.4416 0.12s/step
+step 1200/16500 loss 0.4755 0.12s/step
+step 1300/16500 loss 0.4287 0.12s/step
+step 1400/16500 loss 0.4009 0.12s/step
+step 1500/16500 loss 0.3840 0.12s/step
+step 1600/16500 loss 0.3919 0.12s/step
+step 1700/16500 loss 0.4135 0.12s/step
+step 1800/16500 loss 0.4013 0.12s/step
+step 1900/16500 loss 0.3905 0.12s/step
+step 2000/16500 loss 0.3609 0.12s/step
+EVAL {"loss": 0.26631435555847066, "f1/drone_electric": 0.8053863585753396, "f1/drone_engine": 0.7393023619069542, "f1/ground_engine": 0.6434767273969734, "prec/drone_electric": 0.7862001943634597, "prec/drone_engine": 0.928854734754586, "prec/ground_engine": 0.4906875105059674, "rec/drone_electric": 0.8255323719756169, "rec/drone_engine": 0.6140022667995794, "rec/ground_engine": 0.9344409232049682, "step": 2000, "mean_f1": 0.7293884826264224}
+step 2100/16500 loss 0.3685 0.12s/step
+step 2200/16500 loss 0.3378 0.12s/step
+step 2300/16500 loss 0.3339 0.12s/step
+step 2400/16500 loss 0.3214 0.12s/step
+step 2500/16500 loss 0.3509 0.11s/step
+step 2600/16500 loss 0.3335 0.11s/step
+step 2700/16500 loss 0.3324 0.11s/step
+step 2800/16500 loss 0.3400 0.11s/step
+step 2900/16500 loss 0.3451 0.11s/step
+step 3000/16500 loss 0.3384 0.11s/step
+EVAL {"loss": 0.21163023341643183, "f1/drone_electric": 0.7696085994959626, "f1/drone_engine": 0.8339966309403166, "f1/ground_engine": 0.6618438222568165, "prec/drone_electric": 0.7383366639528286, "prec/drone_engine": 0.8200126695877105, "prec/ground_engine": 0.5151185788357714, "rec/drone_electric": 0.8036467144660168, "rec/drone_engine": 0.8484658136581502, "rec/ground_engine": 0.925445756906431, "step": 3000, "mean_f1": 0.755149684231032}
+step 3100/16500 loss 0.3103 0.11s/step
+step 3200/16500 loss 0.3173 0.11s/step
+step 3300/16500 loss 0.3189 0.11s/step
+step 3400/16500 loss 0.3070 0.11s/step
+step 3500/16500 loss 0.3329 0.11s/step
+step 3600/16500 loss 0.3041 0.11s/step
+step 3700/16500 loss 0.3365 0.11s/step
+step 3800/16500 loss 0.3098 0.11s/step
+step 3900/16500 loss 0.3123 0.11s/step
+step 4000/16500 loss 0.3080 0.11s/step
+EVAL {"loss": 0.16657686547229164, "f1/drone_electric": 0.8667832167832168, "f1/drone_engine": 0.8276537889948148, "f1/ground_engine": 0.8044617658916813, "prec/drone_electric": 0.9473583643832999, "prec/drone_engine": 0.7886099431115509, "prec/ground_engine": 0.753904282115869, "rec/drone_electric": 0.7988399258841538, "rec/drone_engine": 0.8707651131351477, "rec/ground_engine": 0.8622875252088735, "step": 4000, "mean_f1": 0.8329662572232376}
+step 4100/16500 loss 0.2922 0.11s/step
+step 4200/16500 loss 0.2911 0.11s/step
+step 4300/16500 loss 0.3063 0.11s/step
+step 4400/16500 loss 0.2848 0.11s/step
+step 4500/16500 loss 0.2959 0.11s/step
+step 4600/16500 loss 0.3025 0.11s/step
+step 4700/16500 loss 0.2628 0.11s/step
+step 4800/16500 loss 0.2822 0.11s/step
+step 4900/16500 loss 0.2939 0.11s/step
+step 5000/16500 loss 0.2700 0.11s/step
+EVAL {"loss": 0.1718629437841867, "f1/drone_electric": 0.7766534569658728, "f1/drone_engine": 0.8391025763146698, "f1/ground_engine": 0.8177731883617809, "prec/drone_electric": 0.7433348063043158, "prec/drone_engine": 0.7842643811875312, "prec/ground_engine": 0.7779158119781585, "rec/drone_electric": 0.8130991702247644, "rec/drone_engine": 0.9021862326064098, "rec/ground_engine": 0.8619354012612439, "step": 5000, "mean_f1": 0.8111764072141078}
+step 5100/16500 loss 0.2957 0.11s/step
+step 5200/16500 loss 0.2944 0.11s/step
+step 5300/16500 loss 0.2973 0.11s/step
+step 5400/16500 loss 0.2720 0.11s/step
+step 5500/16500 loss 0.2913 0.11s/step
+step 5600/16500 loss 0.2905 0.11s/step
+step 5700/16500 loss 0.2437 0.11s/step
+step 5800/16500 loss 0.2671 0.11s/step
+step 5900/16500 loss 0.2672 0.11s/step
+step 6000/16500 loss 0.2501 0.11s/step
+EVAL {"loss": 0.19648613074892446, "f1/drone_electric": 0.7727622022260231, "f1/drone_engine": 0.8486352035017762, "f1/ground_engine": 0.7557628177023131, "prec/drone_electric": 0.7175839605920401, "prec/drone_engine": 0.8091345915688314, "prec/ground_engine": 0.6459980012719179, "rec/drone_electric": 0.8371331131340799, "rec/drone_engine": 0.8921904657863473, "rec/ground_engine": 0.9104644834981913, "step": 6000, "mean_f1": 0.7923867411433708}
+step 6100/16500 loss 0.2643 0.11s/step
+step 6200/16500 loss 0.2547 0.11s/step
+step 6300/16500 loss 0.2542 0.11s/step
+step 6400/16500 loss 0.2865 0.11s/step
+step 6500/16500 loss 0.2792 0.11s/step
+step 6600/16500 loss 0.2573 0.11s/step
+step 6700/16500 loss 0.2548 0.11s/step
+step 6800/16500 loss 0.2549 0.11s/step
+step 6900/16500 loss 0.2427 0.11s/step
+step 7000/16500 loss 0.2547 0.11s/step
+EVAL {"loss": 0.15086770841949865, "f1/drone_electric": 0.8713844509116826, "f1/drone_engine": 0.8422637315776211, "f1/ground_engine": 0.8267771491364845, "prec/drone_electric": 0.9745591019296556, "prec/drone_engine": 0.7993500122639196, "prec/ground_engine": 0.7710930142374384, "rec/drone_electric": 0.7879642310480948, "rec/drone_engine": 0.890046564979312, "rec/ground_engine": 0.8911296776465316, "step": 7000, "mean_f1": 0.8468084438752627}
+step 7100/16500 loss 0.2496 0.12s/step
+step 7200/16500 loss 0.2611 0.12s/step
+step 7300/16500 loss 0.2188 0.12s/step
+step 7400/16500 loss 0.2339 0.12s/step
+step 7500/16500 loss 0.2616 0.12s/step
+step 7600/16500 loss 0.2390 0.12s/step
+step 7700/16500 loss 0.2398 0.12s/step
+step 7800/16500 loss 0.2558 0.12s/step
+step 7900/16500 loss 0.2390 0.12s/step
+step 8000/16500 loss 0.2384 0.12s/step
+EVAL {"loss": 0.15151709004452354, "f1/drone_electric": 0.7953419027279688, "f1/drone_engine": 0.8692745832578996, "f1/ground_engine": 0.8003983213599829, "prec/drone_electric": 0.79563044179297, "prec/drone_engine": 0.8868618842618246, "prec/ground_engine": 0.7202990577632118, "rec/drone_electric": 0.7950535728671554, "rec/drone_engine": 0.8523712635359343, "rec/ground_engine": 0.9005409904286309, "step": 8000, "mean_f1": 0.8216716024486171}
+step 8100/16500 loss 0.2421 0.12s/step
+step 8200/16500 loss 0.2292 0.12s/step
+step 8300/16500 loss 0.2457 0.12s/step
+step 8400/16500 loss 0.2341 0.12s/step
+step 8500/16500 loss 0.2156 0.12s/step
+step 8600/16500 loss 0.2169 0.12s/step
+step 8700/16500 loss 0.2173 0.12s/step
+step 8800/16500 loss 0.2417 0.12s/step
+step 8900/16500 loss 0.2500 0.12s/step
+step 9000/16500 loss 0.2407 0.12s/step
+EVAL {"loss": 0.11953032408889971, "f1/drone_electric": 0.8824261497746942, "f1/drone_engine": 0.8530867863036589, "f1/ground_engine": 0.8889104649092998, "prec/drone_electric": 0.9441927386273189, "prec/drone_engine": 0.8628275322643724, "prec/ground_engine": 0.8988153674978729, "rec/drone_electric": 0.8282445822927575, "rec/drone_engine": 0.8435635181821906, "rec/ground_engine": 0.879221485963059, "step": 9000, "mean_f1": 0.8748078003292177}
+step 9100/16500 loss 0.2506 0.12s/step
+step 9200/16500 loss 0.2439 0.12s/step
+step 9300/16500 loss 0.2366 0.12s/step
+step 9400/16500 loss 0.2345 0.12s/step
+step 9500/16500 loss 0.2076 0.12s/step
+step 9600/16500 loss 0.2158 0.12s/step
+step 9700/16500 loss 0.2376 0.12s/step
+step 9800/16500 loss 0.2112 0.12s/step
+step 9900/16500 loss 0.2253 0.12s/step
+step 10000/16500 loss 0.2270 0.12s/step
+EVAL {"loss": 0.12368383905605267, "f1/drone_electric": 0.8597252454195558, "f1/drone_engine": 0.8784524331433582, "f1/ground_engine": 0.8684814099468856, "prec/drone_electric": 0.928046806921449, "prec/drone_engine": 0.8813382266023394, "prec/ground_engine": 0.8214540576028316, "rec/drone_electric": 0.8007733827438975, "rec/drone_engine": 0.8755854760961888, "rec/ground_engine": 0.9212202695348762, "step": 10000, "mean_f1": 0.8688863628365998}
+step 10100/16500 loss 0.2153 0.12s/step
+step 10200/16500 loss 0.2145 0.12s/step
+step 10300/16500 loss 0.2110 0.12s/step
+step 10400/16500 loss 0.2165 0.12s/step
+step 10500/16500 loss 0.2021 0.12s/step
+step 10600/16500 loss 0.2257 0.12s/step
+step 10700/16500 loss 0.2017 0.12s/step
+step 10800/16500 loss 0.2187 0.12s/step
+step 10900/16500 loss 0.1932 0.12s/step
+step 11000/16500 loss 0.2182 0.12s/step
+EVAL {"loss": 0.1419147986330484, "f1/drone_electric": 0.866554583535178, "f1/drone_engine": 0.8829370158302459, "f1/ground_engine": 0.8033996501967643, "prec/drone_electric": 0.9229975415060552, "prec/drone_engine": 0.8712692271899387, "prec/ground_engine": 0.7008701871498391, "rec/drone_electric": 0.8166169875667982, "rec/drone_engine": 0.8949215496169655, "rec/ground_engine": 0.9410672556739973, "step": 11000, "mean_f1": 0.8509637498540626}
+step 11100/16500 loss 0.2040 0.12s/step
+step 11200/16500 loss 0.2076 0.12s/step
+step 11300/16500 loss 0.2133 0.12s/step
+step 11400/16500 loss 0.2120 0.12s/step
+step 11500/16500 loss 0.1853 0.12s/step
+step 11600/16500 loss 0.1989 0.12s/step
+step 11700/16500 loss 0.1933 0.12s/step
+step 11800/16500 loss 0.2067 0.12s/step
+step 11900/16500 loss 0.2037 0.12s/step
+step 12000/16500 loss 0.2075 0.12s/step
+EVAL {"loss": 0.12073218900906413, "f1/drone_electric": 0.8595008897669791, "f1/drone_engine": 0.8864254178796583, "f1/ground_engine": 0.8781390260774441, "prec/drone_electric": 0.8986755743084857, "prec/drone_engine": 0.8372220064096338, "prec/ground_engine": 0.8826401914494535, "rec/drone_electric": 0.8235989151158731, "rec/drone_engine": 0.9417732927312203, "rec/ground_engine": 0.873683536604885, "step": 12000, "mean_f1": 0.8746884445746939}
+step 12100/16500 loss 0.2076 0.12s/step
+step 12200/16500 loss 0.1933 0.12s/step
+step 12300/16500 loss 0.2147 0.12s/step
+step 12400/16500 loss 0.1965 0.12s/step
+step 12500/16500 loss 0.2037 0.12s/step
+step 12600/16500 loss 0.1910 0.12s/step
+step 12700/16500 loss 0.1792 0.12s/step
+step 12800/16500 loss 0.2057 0.12s/step
+step 12900/16500 loss 0.1782 0.12s/step
+step 13000/16500 loss 0.1730 0.12s/step
+EVAL {"loss": 0.12087436687005193, "f1/drone_electric": 0.8974804757568231, "f1/drone_engine": 0.8880428236868518, "f1/ground_engine": 0.8575455008845312, "prec/drone_electric": 0.9230026961827729, "prec/drone_engine": 0.8706359306734541, "prec/ground_engine": 0.806474353551589, "rec/drone_electric": 0.8733317221192836, "rec/drone_engine": 0.9061599595799593, "rec/ground_engine": 0.9155222638368706, "step": 13000, "mean_f1": 0.8810229334427353}
+step 13100/16500 loss 0.1972 0.12s/step
+step 13200/16500 loss 0.1934 0.12s/step
+step 13300/16500 loss 0.1695 0.12s/step
+step 13400/16500 loss 0.1848 0.12s/step
+step 13500/16500 loss 0.1825 0.12s/step
+step 13600/16500 loss 0.1781 0.12s/step
+step 13700/16500 loss 0.1852 0.12s/step
+step 13800/16500 loss 0.1830 0.12s/step
+step 13900/16500 loss 0.1841 0.12s/step
+step 14000/16500 loss 0.1805 0.12s/step
+EVAL {"loss": 0.11739331875976763, "f1/drone_electric": 0.8976093067267819, "f1/drone_engine": 0.8808352781581705, "f1/ground_engine": 0.8607532056257567, "prec/drone_electric": 0.9315195101522109, "prec/drone_engine": 0.8322561049690196, "prec/ground_engine": 0.8355887760330329, "rec/drone_electric": 0.8660812588952442, "rec/drone_engine": 0.9354371782441862, "rec/ground_engine": 0.8874803930983707, "step": 14000, "mean_f1": 0.8797325968369031}
+step 14100/16500 loss 0.1735 0.12s/step
+step 14200/16500 loss 0.1955 0.12s/step
+step 14300/16500 loss 0.1785 0.12s/step
+step 14400/16500 loss 0.2100 0.12s/step
+step 14500/16500 loss 0.1787 0.12s/step
+step 14600/16500 loss 0.1942 0.12s/step
+step 14700/16500 loss 0.1953 0.12s/step
+step 14800/16500 loss 0.1670 0.12s/step
+step 14900/16500 loss 0.1825 0.12s/step
+step 15000/16500 loss 0.1748 0.12s/step
+EVAL {"loss": 0.11119208445674494, "f1/drone_electric": 0.9128483340091444, "f1/drone_engine": 0.8805609721450985, "f1/ground_engine": 0.8728257276433642, "prec/drone_electric": 0.9522462077012835, "prec/drone_engine": 0.8351971387626619, "prec/ground_engine": 0.8586471754212092, "rec/drone_electric": 0.8765810037863531, "rec/drone_engine": 0.9311357212109626, "rec/ground_engine": 0.8874803930983707, "step": 15000, "mean_f1": 0.8887450112658689}
+step 15100/16500 loss 0.1833 0.12s/step
+step 15200/16500 loss 0.1862 0.12s/step
+step 15300/16500 loss 0.1812 0.12s/step
+step 15400/16500 loss 0.1821 0.12s/step
+step 15500/16500 loss 0.1799 0.12s/step
+step 15600/16500 loss 0.1892 0.12s/step
+step 15700/16500 loss 0.1685 0.12s/step
+step 15800/16500 loss 0.1712 0.12s/step
+step 15900/16500 loss 0.1858 0.12s/step
+step 16000/16500 loss 0.1944 0.12s/step
+EVAL {"loss": 0.11350698043641291, "f1/drone_electric": 0.8944034090909091, "f1/drone_engine": 0.8814305436169936, "f1/ground_engine": 0.8726706609425862, "prec/drone_electric": 0.9493983896746178, "prec/drone_engine": 0.8424682260092365, "prec/ground_engine": 0.8576594955489614, "rec/drone_electric": 0.8454308654904804, "rec/drone_engine": 0.9241714574428862, "rec/ground_engine": 0.8882166522615961, "step": 16000, "mean_f1": 0.8828348712168297}
+step 16100/16500 loss 0.1872 0.12s/step
+step 16200/16500 loss 0.1913 0.12s/step
+step 16300/16500 loss 0.1913 0.12s/step
+step 16400/16500 loss 0.1780 0.12s/step
+step 16500/16500 loss 0.1925 0.12s/step
+EVAL {"loss": 0.11502800303462304, "f1/drone_electric": 0.8973479294489445, "f1/drone_engine": 0.8757852340273492, "f1/ground_engine": 0.8753672491108706, "prec/drone_electric": 0.9548594280174503, "prec/drone_engine": 0.8352374107850912, "prec/ground_engine": 0.8466692590709222, "rec/drone_electric": 0.8463707403528559, "rec/drone_engine": 0.9204708388523986, "rec/ground_engine": 0.906078939786805, "step": 16500, "mean_f1": 0.8828334708623881}
