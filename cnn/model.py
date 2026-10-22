@@ -15,6 +15,7 @@ from .panns_pytorch_utils import interpolate, pad_framewise_output
 
 SR, HOP, N_MELS, FMIN, FMAX = 32000, 320, 64, 50.0, 14000.0
 CLASSES = ["drone_electric", "drone_engine", "ground_engine"]
+N_CLASSES = len(CLASSES)
 
 
 def bent_mel_filters(n_fft, sr=SR, n_mels=N_MELS, fmin=FMIN, fmax=FMAX, bend_hz=50.0):
@@ -38,7 +39,7 @@ def bent_mel_filters(n_fft, sr=SR, n_mels=N_MELS, fmin=FMIN, fmax=FMAX, bend_hz=
 
 
 class DroneCNN14(nn.Module):
-    def __init__(self, frontend="logf", checkpoint=None, n_classes=len(CLASSES)):
+    def __init__(self, frontend="logf", checkpoint=None, n_classes=N_CLASSES):
         super().__init__()
         base = Cnn14_DecisionLevelMax(SR, 1024, HOP, N_MELS, FMIN, FMAX, 527)
         if checkpoint:
@@ -94,7 +95,7 @@ class DroneCNN14(nn.Module):
 class SmallCNN(nn.Module):
     """From-scratch baseline (~1.2M params): same log-frequency input and frame output as DroneCNN14."""
 
-    def __init__(self, frontend="logf", n_classes=len(CLASSES), widths=(32, 64, 128, 256)):
+    def __init__(self, frontend="logf", n_classes=N_CLASSES, widths=(32, 64, 128, 256)):
         super().__init__()
         ref = DroneCNN14(frontend)                      # reuse the exact front end, no pretrained weights
         self.spectrogram_extractor = ref.base.spectrogram_extractor

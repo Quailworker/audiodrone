@@ -60,7 +60,7 @@ def main():
 
     for split in a.split:
         items = scene_list(a.data, split)
-        tp = np.zeros(len(CLASSES)); fp = np.zeros(len(CLASSES)); fn = np.zeros(len(CLASSES))
+        tp, fp, fn = (np.zeros(len(CLASSES)) for _ in range(3))
         hits = {c: np.zeros(len(R_BINS) - 1) for c in CLASSES[:2]}
         tots = {c: np.zeros(len(R_BINS) - 1) for c in CLASSES[:2]}
         neg_hours, neg_events = 0.0, np.zeros(len(CLASSES))

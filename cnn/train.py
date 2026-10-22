@@ -26,7 +26,7 @@ def masked_bce(logits, y, mask, pos_weight):
 @torch.no_grad()
 def evaluate(model, loader, device):
     model.eval()
-    tp = np.zeros(len(CLASSES)); fp = np.zeros(len(CLASSES)); fn = np.zeros(len(CLASSES))
+    tp, fp, fn = (np.zeros(len(CLASSES)) for _ in range(3))
     losses = []
     for x, y, m in loader:
         x, y, m = x.to(device), y.to(device), m.to(device)
@@ -40,9 +40,9 @@ def evaluate(model, loader, device):
         fn += (((1 - pred) * y) * m).sum((0, 1)).cpu().numpy()
     model.train()
     f1 = 2 * tp / np.maximum(2 * tp + fp + fn, 1)
-    return {"loss": float(np.mean(losses)), **{f"f1/{c}": float(v) for c, v in zip(CLASSES, f1)},
-            **{f"prec/{c}": float(t / max(t + p, 1)) for c, t, p in zip(CLASSES, tp, fp)},
-            **{f"rec/{c}": float(t / max(t + n, 1)) for c, t, n in zip(CLASSES, tp, fn)}}
+    return {"loss": float(np.mean(losses)), **{f"f1/{c}": float(v) for c, v in zip(CLASSES, f1, strict=True)},
+            **{f"prec/{c}": float(t / max(t + p, 1)) for c, t, p in zip(CLASSES, tp, fp, strict=True)},
+            **{f"rec/{c}": float(t / max(t + n, 1)) for c, t, n in zip(CLASSES, tp, fn, strict=True)}}
 
 
 def main():
@@ -61,7 +61,8 @@ def main():
     ap.add_argument("--eval_every", type=int, default=1000)
     a = ap.parse_args()
 
-    out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
     (out / "args.json").write_text(json.dumps(vars(a), indent=1))
     device = "cuda"
     torch.backends.cudnn.benchmark = True
@@ -106,7 +107,8 @@ def main():
                 ev = evaluate(model, vl, device)
                 score = float(np.mean([ev[f"f1/{c}"] for c in CLASSES]))
                 ev.update(step=step, mean_f1=score)
-                log.write(json.dumps(ev) + "\n"); log.flush()
+                log.write(json.dumps(ev) + "\n")
+                log.flush()
                 print("EVAL", json.dumps(ev), flush=True)
                 torch.save(model.state_dict(), out / "last.pt")
                 if score > best:
