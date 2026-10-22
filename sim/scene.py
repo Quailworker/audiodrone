@@ -250,7 +250,6 @@ def _rev_profile(rng, n, fs, idle, high):
 
 def sample_confuser(rng, kind, duration, n_src):
     """Returns (category, signal, t_ctrl, p_ctrl, level_db_at_1m, meta)."""
-    t_src = -PAD_S + np.arange(n_src) / FS
     meta = {"kind": kind}
     if kind == "ground_2stroke":       # chainsaw / leaf blower / trimmer, or a moped on a road
         if rng.uniform() < 0.7:
@@ -371,7 +370,7 @@ def sample_and_render(seed, heldout=False, mics=((0.0, 0.0, None),)):
         per_cat[cat] = per_cat.get(cat, 0) + np.array(rows)
         return rs
 
-    for q, fixed_wing, t, p, dur, info in drones:
+    for q, fixed_wing, t, p, _dur, info in drones:
         t = np.concatenate([t, t[-1] + np.arange(1, int((duration - t[-1] + 2) * CTRL_HZ) + 1) / CTRL_HZ]) \
             if t[-1] < duration + 1 else t
         p = np.concatenate([p, np.repeat(p[-1:], len(t) - len(p), 0)])
@@ -379,7 +378,8 @@ def sample_and_render(seed, heldout=False, mics=((0.0, 0.0, None),)):
         sig, sound = drone_signal(rng, q, shaft, t, n_src)
         sig = ac.set_level_dba(sig, FS, q["level"])
         beta = q["directivity_beta"]
-        directivity = lambda tau, el, b=beta: (1 + b * np.sin(el) ** 2) / (1 + b / 2)
+        def directivity(tau, el, b=beta):
+            return (1 + b * np.sin(el) ** 2) / (1 + b / 2)
         cat = "drone_electric" if q["power"] == "electric" else "drone_engine"
         add(cat, sig, t, p, directivity)
         drone_tracks.append((q, t, p, shaft))
