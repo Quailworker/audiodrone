@@ -83,10 +83,11 @@ def main():
     log = open(out / "log.jsonl", "a")
     while step < total:
         for x, y, m in tl:
-            if step == a.stage1_steps:          # stage 2: unfreeze, cosine decay
-                for p in model.parameters():
+            if step == a.stage1_steps:          # stage 2: unfreeze all but the fixed STFT/filter bank
+                trainable = [p for n, p in model.named_parameters() if "extractor" not in n]
+                for p in trainable:
                     p.requires_grad = True
-                opt = torch.optim.AdamW(model.parameters(), lr=a.lr2, weight_decay=1e-4)
+                opt = torch.optim.AdamW(trainable, lr=a.lr2, weight_decay=1e-4)
                 sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, a.stage2_steps)
             x, y, m = x.to(device, non_blocking=True), y.to(device), m.to(device)
             with torch.autocast("cuda", dtype=torch.bfloat16):

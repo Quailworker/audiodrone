@@ -75,15 +75,20 @@ def main():
             fp += (pred & (y == 0) & (m > 0)).sum(0)
             fn += (~pred & (y > 0) & (m > 0)).sum(0)
             drones = [s for s in meta["sources"] if "cls" in s]
+            ranges = [npz[f"drone{i}/r"][: len(probs)] for i in range(len(drones))]
             for i, s in enumerate(drones):
                 c = CLASSES.index(s["category"])
-                r = npz[f"drone{i}/r"][: len(probs)]
-                b = np.clip(np.digitize(r, R_BINS) - 1, 0, len(R_BINS) - 2)
+                r = ranges[i]
+                # with two drones of one class, a frame's detection is credited to the nearer one only
+                same = [ranges[j] for j, o in enumerate(drones) if o["category"] == s["category"]]
+                own = r <= np.min(same, axis=0)
+                b = np.clip(np.digitize(r, R_BINS) - 1, 0, len(R_BINS) - 2)[own]
                 np.add.at(tots[s["category"]], b, 1)
-                np.add.at(hits[s["category"]], b, pred[: len(r), c])
+                np.add.at(hits[s["category"]], b, pred[: len(r), c][own])
             if not drones:
                 neg_hours += len(wave) / 32000 / 3600
-                neg_events += [events_per_hour(pred[:, c]) for c in range(len(CLASSES))]
+                false_pos = pred & (y == 0) & (m > 0)    # a correctly detected chainsaw is not a false alarm
+                neg_events += [events_per_hour(false_pos[:, c]) for c in range(len(CLASSES))]
         f1 = 2 * tp / np.maximum(2 * tp + fp + fn, 1)
         res = {"split": split, "scenes": len(items),
                "frame": {c: {"precision": float(tp[i] / max(tp[i] + fp[i], 1)),

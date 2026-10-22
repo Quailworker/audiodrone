@@ -373,7 +373,11 @@ def sample_and_render(seed, heldout=False, mics=((0.0, 0.0, None),)):
     for q, fixed_wing, t, p, _dur, info in drones:
         t = np.concatenate([t, t[-1] + np.arange(1, int((duration - t[-1] + 2) * CTRL_HZ) + 1) / CTRL_HZ]) \
             if t[-1] < duration + 1 else t
-        p = np.concatenate([p, np.repeat(p[-1:], len(t) - len(p), 0)])
+        # a shorter flight continues at its final velocity rather than stopping dead
+        v_end = (p[-1] - p[-1 - CTRL_HZ]) / 1.0
+        steps = np.arange(1, len(t) - len(p) + 1)[:, None] / CTRL_HZ
+        p = np.concatenate([p, p[-1] + v_end * steps])
+        p[:, 2] = np.maximum(p[:, 2], 1.0)
         shaft = rotor_shaft_hz(rng, q, t, p, fixed_wing)
         sig, sound = drone_signal(rng, q, shaft, t, n_src)
         sig = ac.set_level_dba(sig, FS, q["level"])
@@ -422,13 +426,30 @@ def sample_and_render(seed, heldout=False, mics=((0.0, 0.0, None),)):
     return audio.astype(np.float32), labels, meta
 
 
+def separate_regions(local_db, group=4, k=4):
+    """Per frame, the k strongest tone regions that are genuinely separate.
+
+    Bins are grouped (4 bins = 125 Hz); after taking the strongest group, it and its neighbours are
+    suppressed before the next pick, so one tone straddling a group edge counts once. -> (frames, k)
+    """
+    g = local_db[: local_db.shape[0] // group * group].reshape(-1, group, local_db.shape[1]).max(1)
+    frames = np.arange(g.shape[1])
+    picks = []
+    for _ in range(k):
+        j = g.argmax(0)
+        picks.append(g[j, frames].copy())
+        for off in (-1, 0, 1):
+            g[np.clip(j + off, 0, len(g) - 1), frames] = -np.inf
+    return np.stack(picks, 1)
+
+
 def frame_labels(per_cat, drone_tracks, mic, n_out, band=(50, 8000)):
     """Per 10 ms frame, for each category vs everything else (mic 0):
 
     snr_band/<cat>   broadband SNR over `band` (dB)
     snr_peak/<cat>   best single smoothed bin (dB)
-    snr_lines/<cat>  (frames, 4): top-4 of per-group maxima, groups of 4 bins (125 Hz); the k-th value is
-                     how far the k-th most prominent separate tone region stands above the rest (dB)
+    snr_lines/<cat>  (frames, 4): how far the k-th strongest separate tone region stands above the
+                     rest (dB); see separate_regions
     bands/<cat>      coarse spectrum, 48 log bands 40 Hz-14 kHz at 25 frames/s (dB re 1 Pa^2), for relabelling
     """
     nfft = 1024
@@ -452,8 +473,7 @@ def frame_labels(per_cat, drone_tracks, mic, n_out, band=(50, 8000)):
         out[f"snr_band/{cat}"] = np.clip(10 * np.log10(pc[sel].sum(0) / rest[sel].sum(0) + 1e-30), -100, 100).astype(np.float16)
         local = 10 * np.log10(np.maximum(uniform_filter(pc[sel], (3, 5)), 1e-30) / uniform_filter(rest[sel], (3, 5)))
         out[f"snr_peak/{cat}"] = np.clip(local.max(0), -100, 100).astype(np.float16)
-        g = local[: local.shape[0] // 4 * 4].reshape(-1, 4, local.shape[1]).max(1)
-        out[f"snr_lines/{cat}"] = np.clip(-np.sort(-g, axis=0)[:4].T, -100, 100).astype(np.float16)
+        out[f"snr_lines/{cat}"] = np.clip(separate_regions(local), -100, 100).astype(np.float16)
     for i, (q, tc, p, shaft) in enumerate(drone_tracks):
         tau, r = ac.emission_time(t, tc, p, mic)
         dtau = np.gradient(tau, t)
