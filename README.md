@@ -4,6 +4,7 @@ Acoustic drone detection: a scenario simulator that renders what microphones hea
 
 - **design.md** is the full design: theory, maths, decisions (D-01 to D-36), results (section 5.9).
 - **AGENTS.md** is a step-by-step checklist for setting up the test environment and checking the published models.
+- **NEXT_STEPS.md** is the to-do list: what to build next, in order, and how to start it on the desktop.
 - **UPGRADES.md** lists where the best model falls short, ranked, and the planned upgrades.
 - **results/real_world/REAL_TESTS.md** has the tests on public real drone and non-drone recordings, with suggestions to improve the model.
 - This README covers how to replicate the published dataset, models and results.
