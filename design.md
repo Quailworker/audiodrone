@@ -673,6 +673,8 @@ Model B (CNN14 + log-frequency) was tested five ways. Code: `analysis/` (`dump`,
 | W6 | Few low-RPM large electric drones in training | Widen the "mid" class to lower tip speeds and larger props |
 | W8 | pos_weight (2, 3, 3) shifts probabilities up | Tune thresholds on val, or temperature-scale |
 
+Follow-up real tests (Svanström et al. ground-mic clips, IDMT by drone and range, ESC-50 by category) and the upgrade plan: `results/real_world/REAL_TESTS.md`, `UPGRADES.md`.
+
 Not finished: the 4,000-scene extra sim test set (rendered, in `data/sim_eval`) was only 6 % predicted when the run was stopped for low memory; the 700-scene results above stand on their own.
 
 ---

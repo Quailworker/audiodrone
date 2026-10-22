@@ -4,9 +4,11 @@ Acoustic drone detection: a scenario simulator that renders what microphones hea
 
 - **design.md** is the full design: theory, maths, decisions (D-01 to D-31), results (section 5.9).
 - **AGENTS.md** is a step-by-step checklist for setting up the test environment and checking the published models.
+- **UPGRADES.md** lists where the best model falls short, ranked, and the planned upgrades.
+- **results/real_world/REAL_TESTS.md** has the tests on public real drone and non-drone recordings, with suggestions to improve the model.
 - This README covers how to replicate the published dataset, models and results.
 
-Status (v0.5, 2026-10-23): trained and tested on simulated audio only. The real test is the owner's own drone flyover recordings (design.md 14.7). Those are not in this repo and are never used for training.
+Status (v0.5, 2026-10-23): trained on simulated audio only. It has been tested on public real recordings (detects real drones to ~100 m, but has many false alarms on everyday sounds; see UPGRADES.md). The main real test is the owner's own drone flyover recordings (design.md 14.7). Those are not in this repo and are never used for training.
 
 ## Repo layout
 
@@ -25,6 +27,8 @@ Status (v0.5, 2026-10-23): trained and tested on simulated audio only. The real 
 | `scripts/` | Setup, rendering, testing, manifest and comparison scripts (below) |
 | `scripts/two_pc/` | The exact scripts used to render and train across the two PCs (Linux RTX 4060 Ti and Windows RTX 3080), kept as a record |
 | `results/<run>/` | Reference results per model: `args.json`, `log.jsonl` (val metrics every 1,000 steps), `train.out`, `eval_test_sim.json`, `eval_test_heldout.json` |
+| `analysis/` | Failure analysis (design.md 5.10): per-frame tables, slices, robustness, sweeps, real-recording tests, figures |
+| `results/real_world/` | Real-recording results: summary (`REAL_TESTS.md`), figures, per-clip and per-range CSVs |
 | `results/sim_v1_manifest.csv` | One row per scene (length, level, sources, label counts) to check a re-render |
 
 Not in git (see `.gitignore`): `data/` (rendered scenes, 26 GB), `weights/` (CNN14 checkpoint), `models/` and `runs/` (trained weights).
@@ -139,3 +143,5 @@ A frame's label is positive when at least two separate tone regions of that sour
 ## Licences
 
 `cnn/panns_models.py` and `cnn/panns_pytorch_utils.py` come from PANNs (Kong et al., 2020) under the MIT licence (`cnn/PANNS_LICENSE`). The CNN14 weights are downloaded from Zenodo record 3987831.
+
+Real test recordings (not in git, testing only): Fraunhofer IDMT drone flights (Zenodo 17525811, CC BY 4.0), Svanström et al. 2021 (Zenodo 5500576, CC0), ESC-50 (CC BY-NC 3.0, non-commercial).
