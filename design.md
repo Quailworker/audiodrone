@@ -338,7 +338,7 @@ CNN14 takes **raw audio** and computes its spectrogram in its first layer. Conve
 **Plan:** A as the baseline, then B. Compare on **real** recordings (open question 9). Move to C only if B falls short.
 
 **Practical notes [C]**
-- **Changing the band count** probably requires replacing the first normalisation layer (`bn0`, which appears to normalise each mel band separately). This was seen only in a derived copy of the code, so check the official `models.py` or the checkpoint's layer names *(unverified)*. The convolutional layers and global pooling accept any input height.
+- **Changing the band count requires replacing `bn0`.** In the official `models.py`, `bn0 = BatchNorm2d(64)` is applied after transposing the spectrogram so each of the 64 mel bands is normalised separately *(verified against the official code)*. Even with 64 bands kept (option B), its statistics should be re-learned, because each band now covers different frequencies. The convolutional layers and global pooling accept any input height.
 - **Fine-tuning order:**
   1. Replace the 527-class output with drone / no-drone (type later).
   2. Train the new head with the rest frozen.
@@ -872,7 +872,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 11. Re-run the velocity and Kalman simulations with per-rotor lines (F2).
 12. Add multi-target tracking, emission-time correction and gating to the Kalman filter (F6, F7).
 13. Fine-tune CNN14 with front ends A and B and compare on real recordings (D-22, D-23).
-14. Confirm CNN14's `bn0` layout in the official PANNs code before changing the band count (D-23).
+14. ~~Confirm CNN14's `bn0` layout~~ Done: per-band BatchNorm2d(64), confirmed in the official code.
 15. Get advice on recording-law requirements before any public deployment (F10).
 
 ---
