@@ -2,3 +2,6 @@ runs/
 weights/
 data/
 __pycache__/
+models/
+.venv
+*.detections.*

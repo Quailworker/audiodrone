@@ -1,0 +1,9 @@
+# Python 3.10. Versions the published results were produced with (Linux PC; Anna's Windows PC used torch 2.14.0+cu130).
+# Install torch first for your platform, e.g.  pip install torch --index-url https://download.pytorch.org/whl/cu128
+torch>=2.4
+numpy==2.2.6
+scipy==1.15.3
+soundfile==0.14.0
+torchlibrosa==0.1.0
+librosa==0.11.0
+matplotlib==3.10.9

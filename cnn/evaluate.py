@@ -30,7 +30,7 @@ def predict(model, wave, device, chunk_s=60):
     step, size = chunk_s * sr // 2, chunk_s * sr
     for start in range(0, max(1, n - size // 2), step):
         x = torch.from_numpy(wave[start:start + size].astype(np.float32))[None].to(device)
-        with torch.autocast("cuda", dtype=torch.bfloat16):
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=str(device).startswith("cuda")):
             p = torch.sigmoid(model(x).float())[0].cpu().numpy()
         f0 = start // hop
         f1 = min(n_frames, f0 + len(p))
@@ -53,8 +53,9 @@ def main():
     ap.add_argument("--frontend", default="logf")
     ap.add_argument("--arch", default="cnn14", choices=["cnn14", "small"])
     ap.add_argument("--threshold", type=float, default=0.5)
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args()
-    device = "cuda"
+    device = a.device
     model = (DroneCNN14(a.frontend) if a.arch == "cnn14" else SmallCNN(a.frontend)).to(device).eval()
     model.load_state_dict(torch.load(a.model, map_location=device))
 

@@ -62,8 +62,11 @@ def main():
     ap.add_argument("--heldout", action="store_true")
     ap.add_argument("--prefix", default="")
     ap.add_argument("--relabel", action="store_true", help="re-render scenes rendered with an older LABEL_VERSION")
+    ap.add_argument("--only-split", choices=["train", "val", "test_sim", "test_heldout"],
+                    help="render only the seeds in this range that fall in one split (e.g. test_sim for testing)")
     a = ap.parse_args()
-    jobs = [(s, a.heldout, a.out, a.prefix, a.relabel) for s in range(a.start, a.start + a.count)]
+    seeds = [s for s in range(a.start, a.start + a.count) if a.only_split in (None, split_of(s, a.heldout))]
+    jobs = [(s, a.heldout, a.out, a.prefix, a.relabel) for s in seeds]
     t0, done = time.time(), 0
     log = Path(a.out) / f"render_{a.prefix or 'x'}{'h' if a.heldout else ''}_{a.start}.log"
     log.parent.mkdir(parents=True, exist_ok=True)

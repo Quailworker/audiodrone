@@ -1,6 +1,7 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.4, 2026-10-22.
+- **Status:** draft v0.5, 2026-10-23.
+  - v0.5 records the first trained models and how to replicate them: the 6,400-scene sim_v1 dataset, the frame-label rule actually used (`snr_lines2`, 5.8.6), the training recipe, results for CNN14 + log-frequency (B), CNN14 + stock mel (A) and a small CNN trained from scratch (C), and the fixes found by code review (5.9). Full scale changed to 120 dB SPL (14.6). Replication steps are in README.md; AGENTS.md is the test checklist.
   - v0.4 records the CNN build decisions: the real CNN14 checkpoint (32 kHz), render-then-convert, sim-only training with Joseph's own field recordings as the test, detection-only scope, drone classes incl. two-stroke (4.4), the scenario simulator (14.6), the field test protocol (14.7) and flat ground clusters as an alternative to the tetrahedron (7.8). New decisions D-24 to D-31.
   - v0.2 added CNN input representation and training data (sections 5.5–5.6, D-19 to D-21).
   - v0.3 adds the pretrained CNN14 model (section 5.7, D-22 and D-23) and a known-flaws review (section 16).
@@ -499,7 +500,7 @@ FFT resolution: bin = sr/n_fft, so resolving 4.6 Hz needs n_fft ≥ 32,000/4.6 �
 #### 5.8.5 Scope and outputs (D-26) [J]
 
 - **Now: detection only.** Is a drone present in each frame? Type identification comes later.
-- Output heads, per D-28: proposed **electric drone / engine / nothing** (per frame, sigmoid per class).
+- Output heads, per D-28: proposed **electric drone / engine / nothing** (per frame, sigmoid per class). **Implemented (v0.5):** three sigmoid heads, `drone_electric`, `drone_engine`, `ground_engine`, so every D-28 option can still be read off: option 2 ("any engine") is max(drone_engine, ground_engine).
 - Fine-tuning recipe (unchanged from 5.7): replace the 527-class layer, relearn `bn0`, train the head frozen, then unfreeze deeper blocks at a low learning rate.
 - **Crops:** clips are long (full passes, 14.6). Train on random 10 s crops with their frame labels; run inference on the whole clip, since the network is fully convolutional in time.
 
@@ -513,6 +514,22 @@ label = ignore   if θ_lo ≤ SNR_drone < θ_hi       (barely audible: not score
 label = 0        if SNR_drone < θ_lo
 starting values θ_hi = −10 dB, θ_lo = −20 dB   (estimate; narrowband drone tones are detectable well below 0 dB broadband SNR)
 ```
+
+**Rule actually used (v0.5, label version `snr_lines2`).** Broadband SNR proved a poor label: a drone with clear tones can sit at −20 dB broadband, while a single-bin rule ("best bin ≥ 3 dB") marked far, inaudible drones as positive whenever one bin poked up, and the pilot model's electric-drone recall stalled at ~22 %. The label now asks for **at least two separate tone regions** standing out, which is what makes a drone recognisable (a harmonic comb, 5.2):
+
+```
+For each source category c (drone_electric, drone_engine, ground_engine) against everything else at mic 0:
+  P_c(f,t), P_rest(f,t)          STFT power, n_fft 1024, hop 320 (10 ms), 32 kHz, bins in 50 Hz – 8 kHz
+  L(f,t) = 10·log₁₀( U[P_c] / U[P_rest] )      U = 3-bin × 5-frame box average  (local SNR, dB)
+  group bins in fours (4 × 31.25 Hz = 125 Hz), take the max L in each group  → G(g,t)
+  repeat 4×:  pick g* = argmax_g G(g,t); record G(g*,t); set G(g*−1..g*+1, t) = −∞   (non-max suppression,
+              so one tone straddling a group edge counts once)
+  → lines_c(t) = the 4 strongest separate regions, sorted: lines[0] ≥ lines[1] ≥ …
+  positive  if lines[1] ≥ 6 dB          (the 2nd-strongest separate region is ≥ 6 dB above everything else)
+  negative  if lines[0] < 0 dB          (not even one region stands out)
+  ignore    otherwise                   (masked out of the loss and of all metrics)
+```
+Also stored per scene for relabelling without re-rendering: broadband and single-bin SNR, 48 log bands (40 Hz – 14 kHz, 25 frames/s) per source, and per drone the range r, elevation, ṙ, emitted and received BPF. Code: `sim/scene.py: separate_regions, frame_labels`, thresholds in `cnn/data.py: POS_DB, NEG_DB`.
 
 #### 5.8.7 Train and test protocol (D-25) [J], held-out design [C]
 
@@ -530,6 +547,83 @@ starting values θ_hi = −10 dB, θ_lo = −20 dB   (estimate; narrowband drone
 - **Detection range**: P(detect) against distance.
 - **False alarms per hour** on no-drone recordings.
 - Detection latency: how early in a pass the drone is first detected.
+
+### 5.9 First trained models (v0.5) [C] *(simulated test data only)*
+
+Everything here is reproducible from the repo: README.md gives the commands, `results/` holds the logs and metrics, and the trained weights are the GitHub release `models-v0.5`.
+
+#### 5.9.1 Dataset `sim_v1`
+
+Rendered by the scenario simulator (14.6), mic 0 only, 32 kHz, 24-bit FLAC, full scale 120 dB SPL. Rendering is deterministic per seed: on one platform the files are bit-identical; between Linux and Windows the samples differ by at most 1 LSB (−150 dB), and the labels agree on every frame (checked). `results/sim_v1_manifest.csv` lists every scene's length, level, sources and label counts; `scripts/manifest.py verify` checks a re-render against it.
+
+| Split | Seeds | Scenes | Hours | Clip length min/median/max | Scenes with electric / engine drone / ground engine / no drone |
+|---|---|---|---|---|---|
+| train | `p` 0–3999 and `a` 1,000,000–1,001,999 where seed mod 20 ∉ {0,1} | 5,400 | 112.5 | 20 / 73 / 120 s | 2,552 / 1,710 / 927 / 1,328 |
+| val | same ranges, seed mod 20 = 0 | 300 | 6.2 | 20 / 71 / 120 s | 126 / 116 / 47 / 74 |
+| test_sim | same ranges, seed mod 20 = 1 | 300 | 6.2 | 20 / 76 / 120 s | 132 / 104 / 38 / 82 |
+| test_heldout | `ah` 0–399, rendered with `--heldout` (seed + 10,000,000) | 400 | 8.2 | 20 / 71 / 120 s | 191 / 120 / 67 / 101 |
+
+The held-out set uses conditions never seen in training: RPM above each class's training range, 5- and 7-rotor drones, rain as the background and louder backgrounds. About 10 % of frames are positive for drone_electric. Rendering takes about 4 s of CPU per scene (the whole set took about 2 h across two PCs with 22 workers).
+
+#### 5.9.2 Training recipe
+
+| | B: CNN14 + log-frequency | A: CNN14 + stock mel | C: small CNN from scratch |
+|---|---|---|---|
+| Front end (fixed, not trained) | bent mel, n_fft 4096, 64 bands, 50 Hz – 14 kHz (5.8.3) | CNN14's own: mel, n_fft 1024, 64 bands, 50 Hz – 14 kHz | same as B |
+| Network | `Cnn14_DecisionLevelMax` (PANNs), 527-class layer replaced by 3 | same | 4 conv blocks (32/64/128/256) + BiGRU 128, 1.47 M parameters |
+| Start | PANNs AudioSet weights; `bn0` reset (bands moved) | PANNs AudioSet weights | random |
+| Stage 1 (1,500 steps, AdamW lr 1e-3) | train `bn0`, `fc1`, head only | same | same |
+| Stage 2 (15,000 steps, AdamW, cosine) | all except the front end, lr 1e-4 | same | all, lr 1e-3 |
+| Batch | 16 random 10 s crops (60 % centred on a positive frame) | same | same |
+
+Common to all: masked binary cross-entropy per frame and class with pos_weight (2, 3, 3), ignore frames masked out; weight decay 1e-4; gradient clipping at 5; bf16 autocast; SpecAugment inside the model. Waveform augmentation: gain −25 to +15 dB, random polarity, random first-order shelf EQ (70 % of crops; models an unknown mic response). The model is evaluated on val every 1,000 steps and the best mean F1 is kept (best step: B 15,000, A 16,500, C 15,000). Training is not seeded, so a retrain lands within about ±0.01 F1 of these numbers, not exactly on them.
+
+Compute: B ran 1 h 58 min on an RTX 3080 capped at 240 W (0.43 s/step; the n_fft 4096 front end is the slow part), A 34 min on the same card (0.12 s/step), C 33 min on an RTX 4060 Ti.
+
+#### 5.9.3 Results: frame F1 (ignore frames excluded), threshold 0.5
+
+| Model | test_sim electric | engine | ground engine | test_heldout electric | engine | ground engine |
+|---|---|---|---|---|---|---|
+| B: CNN14 + log-f | **0.924** | **0.930** | 0.921 | 0.896 | **0.903** | **0.873** |
+| A: CNN14 + mel | 0.922 | 0.912 | **0.926** | **0.913** | 0.898 | 0.850 |
+| C: small, scratch | 0.883 | 0.834 | 0.890 | 0.875 | 0.820 | 0.845 |
+
+**Detection probability vs distance (B, test_sim; A and C are within a few points):**
+
+| Distance (m) | 0–25 | 25–50 | 50–100 | 100–200 | 200–400 | 400–800 | 800–1600 |
+|---|---|---|---|---|---|---|---|
+| Electric drone | 0.76 | 0.80 | 0.63 | 0.35 | 0.21 | 0.10 | 0.02 |
+| Two-stroke drone | 1.00 | 0.85 | 0.86 | 0.65 | 0.57 | 0.40 | 0.22 |
+
+**False alarms per hour on drone-free scenes (test_sim, 1.73 h; events ≥ 0.5 s):**
+
+| Model | drone_electric | drone_engine | ground_engine |
+|---|---|---|---|
+| B | 1.7 | 27.8 | 11.0 |
+| A | 1.7 | 27.8 | 4.0 |
+| C | 0.6 | 11.0 | 0.6 |
+
+#### 5.9.4 Findings
+
+1. **Starting from CNN14 helps:** +0.04 to +0.09 F1 over the same task trained from scratch, and the gap holds on held-out conditions. This supports D-22.
+2. **Log-frequency vs mel is a draw on simulated data** (≤ 0.02 F1 either way). The D-19 question is not settled by sim; it needs real recordings, especially at RPMs outside the training range.
+3. **Generalisation:** held-out RPM, rotor counts and backgrounds cost only about 0.02–0.05 F1.
+4. **Close-range electric drones are only detected 76 % of the time (0–25 m).** Suspected cause: the range metric counts every frame, including frames the label marks ignore or negative (e.g. a louder confuser on top of the drone). To check before believing it (open question 22).
+5. **Engine-drone false alarms (~28/h) come from ground engines** (chainsaws, blowers, mopeds): the D-28 problem, as predicted. Electric-drone false alarms are low (0.5–2/h).
+6. Electric drones fade past ~100 m, two-strokes are still heard half the time at 200–400 m. Plausible physically, but simulator-only (F1 in 16.1).
+
+#### 5.9.5 Fixes from code review, before these runs
+
+| Problem | Effect | Fix |
+|---|---|---|
+| Stage 2 also unfroze the STFT and filter bank | the front end drifted from what real audio gets | stage 2 trains everything except `*extractor*` |
+| Fractional delay read before the start of the source buffer | a fake tone for far aircraft | out-of-buffer reads are silence |
+| One tone straddling a 4-bin group edge counted as two regions | false positives in labels | non-max suppression (5.8.6) |
+| A second, shorter drone stopped dead at the end of its path | an unphysical stationary source | it continues at its final velocity |
+| Crops not aligned to the 320-sample hop | labels off by up to one frame | crop start rounded down to a hop |
+| False alarms counted correctly detected chainsaws | inflated false-alarm rate | only frames labelled negative count |
+| Range credit in 2-drone scenes | detections of one drone credited to the other | credited to the nearer drone of that class |
+| Full scale 110 dB SPL | clipping on close sources | 120 dB SPL |
 
 ---
 
@@ -1104,7 +1198,7 @@ then air absorption applied per path as a time-varying filter
 ```
 which matters for direction finding later. Wind noise at the mic is independent per mic (turbulence at the windshield).
 
-**Calibrated levels.** Audio is stored in pascals with a fixed full scale (110 dB SPL), 24-bit, so **distance is still audible in loudness** (fixing the 14.5 / section 11 problem). Gain is randomised only at training time.
+**Calibrated levels.** Audio is stored in pascals with a fixed full scale (120 dB SPL; v0.4 said 110, raised because close sources clipped), 24-bit, so **distance is still audible in loudness** (fixing the 14.5 / section 11 problem). Gain is randomised only at training time.
 
 **Clip length [J]:** long enough to hear the **entire pass**. A pass starts and ends where the drone is far enough to be barely audible:
 ```
@@ -1217,7 +1311,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 2. Pick and test the 4-channel synchronous audio hardware for the tetrahedron.
 3. Measure real σ_u, σ_f and detection range G with a built cluster and a GPS-logged drone flight.
 4. Add sound-delay correction, initialisation and multi-drone data association to the Kalman filter.
-5. Build the frame-labelled scene generator and train/evaluate the CRNN (D-02, D-03).
+5. ~~Build the frame-labelled scene generator and train/evaluate the CRNN (D-02, D-03).~~ Done v0.5 (14.6, 5.9).
 6. Widen the simulator: drone profiles, flight states, calibrated levels for distance.
 7. Collect real recordings per drone model for type identification (D-05).
 8. Decide whether a mast cluster is worthwhile, using real data.
@@ -1225,14 +1319,17 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 10. ~~Check `~/drone18_field_test` and `~/field_recorder`~~ Checked 2026-10-22: neither folder exists. Real test data will be Joseph's own recordings (D-25).
 11. Re-run the velocity and Kalman simulations with per-rotor lines (F2).
 12. Add multi-target tracking, emission-time correction and gating to the Kalman filter (F6, F7).
-13. Fine-tune CNN14 with front ends A and B and compare on real recordings (D-22, D-23).
+13. Fine-tune CNN14 with front ends A and B and compare on real recordings (D-22, D-23). v0.5: trained and compared on sim (5.9, roughly a draw); real recordings still needed.
 14. ~~Confirm CNN14's `bn0` layout~~ Done: per-band BatchNorm2d(64), confirmed in the official code.
 15. Get advice on recording-law requirements before any public deployment (F10).
 16. **D-28:** choose how two-stroke drones are separated from chainsaws and other ground engines (proposed: electric drone / engine / nothing).
 17. Are the two-stroke drones fixed-wing or multirotor? (Both are rendered until decided.)
 18. Which drone and which microphone for the field test (14.7)? Check that the drone sits inside the simulated class ranges.
 19. Compare flat ground clusters, tetrahedra and distributed GPS-synced mics in the scenario simulator: height error vs distance and cluster spacing (D-30).
-20. Tune the frame-label SNR thresholds θ_hi, θ_lo (5.8.6) against what a person can hear in the rendered clips.
+20. Tune the frame-label thresholds (v0.5 rule: 2nd tone region ≥ 6 dB positive, 1st < 0 dB negative, 5.8.6) against what a person can hear in the rendered clips.
+22. Explain the 76 % electric-drone detection at 0–25 m (5.9.4): metric or model?
+23. Decide how to score drone_engine against ground engines (≈ 28 false engine-drone alarms per hour on drone-free scenes, mostly chainsaws and blowers; D-28).
+24. Run B and A on Joseph's flyover recordings (14.7) with `cnn/infer.py`.
 21. Decide whether real recorded backgrounds (not drones) may be mixed into training, if the purely synthetic backgrounds turn out too clean.
 
 ---
@@ -1267,7 +1364,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 
 ## Appendix A: prototype code
 
-**Lost (checked 2026-10-22): the session folder no longer exists.** The simulator is rebuilt in the repo under `sim/` (14.6). Original location, for the record:
+**Lost (checked 2026-10-22): the session folder no longer exists.** The simulator is rebuilt in the repo under `sim/` (14.6); the CNN code is in `cnn/` (5.8, 5.9). See README.md for the repo layout and replication steps. Original location, for the record:
 `/tmp/claude-1000/-home-quail/13037ded-e6b5-4d0b-a991-c21a656b52b4/scratchpad/`
 
 | File | Contents |

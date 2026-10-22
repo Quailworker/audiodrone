@@ -37,7 +37,7 @@ rm data/sim_v1_local.tar
 
 log "pulling Anna's scenes"
 ssh anna "cd \"$ANNA\\data\"; tar -cf sim_v1_anna.tar sim_v1" || exit 1
-scp -q "anna:\"Joseph AI/audiodrone/data/sim_v1_anna.tar\"" data/ || exit 1
+scp -q -T "anna:\"Joseph AI/audiodrone/data/sim_v1_anna.tar\"" data/ || exit 1
 tar -xf data/sim_v1_anna.tar -C data && rm data/sim_v1_anna.tar
 ssh anna "Remove-Item \"$ANNA\\data\\sim_v1_anna.tar\""
 check_labels || exit 1
@@ -57,6 +57,6 @@ log "waiting for Anna's runs"
 until ssh -o ConnectTimeout=10 anna "Test-Path \"$ANNA\\runs\\ANNA_DONE\"" 2>/dev/null | grep -q True; do sleep 300; done
 for r in B_logf A_mel; do
   mkdir -p runs/$r
-  scp -q "anna:\"Joseph AI/audiodrone/runs/$r/*\"" runs/$r/ && scp -q "anna:\"Joseph AI/audiodrone/runs/$r.*\"" runs/ || log "pull $r FAILED"
+  scp -q -T "anna:\"Joseph AI/audiodrone/runs/$r/*\"" runs/$r/ && scp -q -T "anna:\"Joseph AI/audiodrone/runs/$r.*\"" runs/ || log "pull $r FAILED"
 done
 log "all done"
