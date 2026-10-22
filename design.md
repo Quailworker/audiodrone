@@ -1375,8 +1375,6 @@ Recorded so that similar mistakes are easier to spot.
 | "Noise sound database from a sponsor" | Searched the event page, Gmail (student account) and Drive; nothing found | Unresolved; public datasets listed in section 18 |
 | Range estimate (8.3) | Assumed a detection margin G of 10–20 dB; real flights imply G ≈ 2–7 dB, so the estimated range was 3–8× too long | Corrected in 8.3 and 5.11.3; spacing planned from ~100 m |
 | Dataset suggestion (section 18, early discussion) | Recommended the Al-Emadi DroneAudioDataset without checking its licence; it forbids security and surveillance use | Caveat added in section 18; REAL_TESTS.md had already excluded it |
-| Open question 10 | Recorded that `~/drone18_field_test` and `~/field_recorder` don't exist; `~/drone18_field_test` does exist on Joseph's Linux machine | Corrected in open question 10 |
-
 ---
 
 ## 16. Known flaws and risks [C]
@@ -1433,7 +1431,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 7. Collect real recordings per drone model for type identification (D-05).
 8. Decide whether a mast cluster is worthwhile, using real data.
 9. Test D-19: train the same CNN on linear vs log-frequency input and compare accuracy on real recordings, especially at RPMs not seen in training.
-10. Check `~/drone18_field_test` (D-21, D-25). Correction (v0.6): it **does exist** on Joseph's Linux machine (`/home/quail`, dated 2026-10-14) with `recordings/`, `FIELD_TEST_REPORT.md` and calibration files. Contents not yet reviewed. Whether it is drone audio usable as a real test set is open.
+10. ~~Source of real test data~~ Resolved: real testing uses Joseph's own flyover recordings (D-25, 14.7) and the public datasets in `results/real_world/REAL_TESTS.md`.
 11. Re-run the velocity and Kalman simulations with per-rotor lines (F2).
 12. Add multi-target tracking, emission-time correction and gating to the Kalman filter (F6, F7).
 13. Fine-tune CNN14 with front ends A and B and compare on real recordings (D-22, D-23). v0.5: trained and compared on sim (5.9, roughly a draw); real recordings still needed.
