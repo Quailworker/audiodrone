@@ -27,11 +27,12 @@ def split_of(seed, heldout):
 
 
 def render_one(job):
-    seed, heldout, out, prefix = job
+    seed, heldout, out, prefix, relabel = job
     split = split_of(seed, heldout)
     name = f"{prefix}{'h' if heldout else ''}{seed:07d}"
     d = Path(out) / split
-    if (d / f"{name}.json").exists():
+    js = d / f"{name}.json"
+    if js.exists() and (not relabel or "snr_lines" in js.read_text()):
         return name, "skip", 0.0
     t0 = time.time()
     try:
@@ -43,6 +44,7 @@ def render_one(job):
         sf.write(d / f"{name}.flac", np.clip(x, -1, 1 - 2 ** -23), FS, subtype="PCM_24")
         np.savez_compressed(d / f"{name}.npz", **labels)
         meta["render_s"] = time.time() - t0
+        meta["labels"] = "snr_lines"
         (d / f"{name}.json").write_text(json.dumps(meta, default=float))
         return name, "ok", meta["render_s"]
     except Exception:
@@ -57,8 +59,9 @@ def main():
     ap.add_argument("--workers", type=int, default=max(1, os.cpu_count() // 2))
     ap.add_argument("--heldout", action="store_true")
     ap.add_argument("--prefix", default="")
+    ap.add_argument("--relabel", action="store_true", help="re-render scenes whose labels predate snr_lines")
     a = ap.parse_args()
-    jobs = [(s, a.heldout, a.out, a.prefix) for s in range(a.start, a.start + a.count)]
+    jobs = [(s, a.heldout, a.out, a.prefix, a.relabel) for s in range(a.start, a.start + a.count)]
     t0, done = time.time(), 0
     log = Path(a.out) / f"render_{a.prefix or 'x'}{'h' if a.heldout else ''}_{a.start}.log"
     log.parent.mkdir(parents=True, exist_ok=True)

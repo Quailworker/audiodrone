@@ -89,3 +89,42 @@ class DroneCNN14(nn.Module):
         x = F.dropout(F.relu_(b.fc1(x)), p=0.5, training=self.training)
         logits = b.fc_audioset(x)                                  # (B, T/32, C)
         return pad_framewise_output(interpolate(logits, 32), frames)
+
+
+class SmallCNN(nn.Module):
+    """From-scratch baseline (~1.2M params): same log-frequency input and frame output as DroneCNN14."""
+
+    def __init__(self, frontend="logf", n_classes=len(CLASSES), widths=(32, 64, 128, 256)):
+        super().__init__()
+        ref = DroneCNN14(frontend)                      # reuse the exact front end, no pretrained weights
+        self.spectrogram_extractor = ref.base.spectrogram_extractor
+        self.logmel_extractor = ref.base.logmel_extractor
+        self.spec_augmenter = ref.base.spec_augmenter
+        self.bn0 = nn.BatchNorm2d(N_MELS)
+        layers, c_in = [], 1
+        for c in widths:
+            layers += [nn.Conv2d(c_in, c, 3, padding=1, bias=False), nn.BatchNorm2d(c), nn.ReLU(inplace=True),
+                       nn.Conv2d(c, c, 3, padding=1, bias=False), nn.BatchNorm2d(c), nn.ReLU(inplace=True),
+                       nn.AvgPool2d((2, 2))]
+            c_in = c
+        self.convs = nn.Sequential(*layers)
+        self.gru = nn.GRU(c_in, 128, batch_first=True, bidirectional=True)
+        self.head = nn.Linear(256, n_classes)
+        self.frontend = frontend
+
+    def head_parameters(self):
+        return list(self.parameters())
+
+    def body_parameters(self):
+        return []
+
+    def forward(self, wave):
+        x = self.logmel_extractor(self.spectrogram_extractor(wave))     # (B, 1, T, 64)
+        frames = x.shape[2]
+        x = self.bn0(x.transpose(1, 3)).transpose(1, 3)
+        if self.training:
+            x = self.spec_augmenter(x)
+        x = self.convs(x).mean(dim=3).transpose(1, 2)                  # (B, T/16, C)
+        x, _ = self.gru(x)
+        logits = self.head(F.dropout(x, 0.3, self.training))
+        return pad_framewise_output(interpolate(logits, 16), frames)

@@ -10,7 +10,9 @@ from torch.utils.data import Dataset
 
 from .model import CLASSES, HOP, SR
 
-POS_DB, NEG_DB = 3.0, -3.0        # snr_peak thresholds: >= POS positive, < NEG negative, between ignored
+# A frame is positive when at least 2 separate tone regions stand >= POS_DB above everything else,
+# negative when no region stands >= NEG_DB above it, and ignored in between (sim/scene.py frame_labels).
+POS_DB, NEG_DB = 6.0, 0.0
 
 
 def scene_list(roots, split):
@@ -23,17 +25,17 @@ def scene_list(roots, split):
 
 
 def frame_targets(npz, n_frames):
-    """(n_frames, C) targets and mask from per-category peak SNR."""
+    """(n_frames, C) targets and mask from the per-category tone-line SNRs."""
     y = np.zeros((n_frames, len(CLASSES)), np.float32)
     mask = np.ones_like(y)
     for c, cat in enumerate(CLASSES):
-        key = f"snr_peak/{cat}"
+        key = f"snr_lines/{cat}"
         if key not in npz:
             continue
-        snr = npz[key].astype(np.float32)[:n_frames]
-        snr = np.pad(snr, (0, n_frames - len(snr)), constant_values=-100)
-        y[:, c] = snr >= POS_DB
-        mask[:, c] = (snr >= POS_DB) | (snr < NEG_DB)
+        lines = npz[key].astype(np.float32)[:n_frames]
+        lines = np.pad(lines, ((0, n_frames - len(lines)), (0, 0)), constant_values=-100)
+        y[:, c] = lines[:, 1] >= POS_DB
+        mask[:, c] = (lines[:, 1] >= POS_DB) | (lines[:, 0] < NEG_DB)
     return y, mask
 
 
@@ -69,8 +71,8 @@ class SceneCrops(Dataset):
             # bias crops towards frames where something labelled is audible
             pos = np.zeros(len(npz["frame_t"]), bool)
             for cat in CLASSES:
-                if f"snr_peak/{cat}" in npz:
-                    pos |= npz[f"snr_peak/{cat}"].astype(np.float32) >= POS_DB
+                if f"snr_lines/{cat}" in npz:
+                    pos |= npz[f"snr_lines/{cat}"][:, 1].astype(np.float32) >= POS_DB
             if pos.any() and rng.uniform() < 0.6:
                 centre = int(rng.choice(np.flatnonzero(pos))) * HOP
                 start = int(np.clip(centre - rng.integers(0, self.crop), 0, n_total - self.crop))

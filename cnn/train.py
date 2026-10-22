@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from .data import SceneCrops
-from .model import CLASSES, DroneCNN14
+from .model import CLASSES, DroneCNN14, SmallCNN
 
 
 def masked_bce(logits, y, mask, pos_weight):
@@ -49,6 +49,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", nargs="+", required=True)
     ap.add_argument("--frontend", default="logf", choices=["logf", "mel"])
+    ap.add_argument("--arch", default="cnn14", choices=["cnn14", "small"])
     ap.add_argument("--checkpoint", default="weights/Cnn14_DecisionLevelMax_mAP=0.385.pth")
     ap.add_argument("--out", required=True)
     ap.add_argument("--batch", type=int, default=12)
@@ -64,7 +65,7 @@ def main():
     (out / "args.json").write_text(json.dumps(vars(a), indent=1))
     device = "cuda"
     torch.backends.cudnn.benchmark = True
-    model = DroneCNN14(a.frontend, a.checkpoint).to(device)
+    model = (DroneCNN14(a.frontend, a.checkpoint) if a.arch == "cnn14" else SmallCNN(a.frontend)).to(device)
 
     train = SceneCrops(a.data, "train", train=True)
     val = SceneCrops(a.data, "val", train=False)

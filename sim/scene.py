@@ -423,7 +423,14 @@ def sample_and_render(seed, heldout=False, mics=((0.0, 0.0, None),)):
 
 
 def frame_labels(per_cat, drone_tracks, mic, n_out, band=(50, 8000)):
-    """Per 10 ms frame: band SNR and peak-bin SNR of each category vs everything else (mic 0)."""
+    """Per 10 ms frame, for each category vs everything else (mic 0):
+
+    snr_band/<cat>   broadband SNR over `band` (dB)
+    snr_peak/<cat>   best single smoothed bin (dB)
+    snr_lines/<cat>  (frames, 4): top-4 of per-group maxima, groups of 4 bins (125 Hz); the k-th value is
+                     how far the k-th most prominent separate tone region stands above the rest (dB)
+    bands/<cat>      coarse spectrum, 48 log bands 40 Hz-14 kHz at 25 frames/s (dB re 1 Pa^2), for relabelling
+    """
     nfft = 1024
     power = {}
     for cat, x in per_cat.items():
@@ -431,16 +438,22 @@ def frame_labels(per_cat, drone_tracks, mic, n_out, band=(50, 8000)):
         power[cat] = np.abs(X) ** 2
     sel = (f >= band[0]) & (f <= band[1])
     total = sum(power.values())
+    edges = np.geomspace(40, 14000, 49)
+    band_idx = np.digitize(f, edges) - 1
     out = {"frame_t": t.astype(np.float32)}
     for cat, pc in power.items():
+        coarse = np.stack([pc[band_idx == b].sum(0) for b in range(48)])
+        n4 = coarse.shape[1] // 4 * 4
+        coarse = coarse[:, :n4].reshape(48, -1, 4).mean(2)
+        out[f"bands/{cat}"] = np.clip(10 * np.log10(coarse + 1e-20), -150, 50).astype(np.float16)
         if cat == "bed":
             continue
         rest = np.maximum(total - pc, 1e-30)
         out[f"snr_band/{cat}"] = np.clip(10 * np.log10(pc[sel].sum(0) / rest[sel].sum(0) + 1e-30), -100, 100).astype(np.float16)
-        sm_c = uniform_filter(pc[sel], (3, 5))
-        sm_r = uniform_filter(rest[sel], (3, 5))
-        peak = 10 * np.log10(np.maximum(sm_c, 1e-30) / sm_r).max(0)
-        out[f"snr_peak/{cat}"] = np.clip(peak, -100, 100).astype(np.float16)
+        local = 10 * np.log10(np.maximum(uniform_filter(pc[sel], (3, 5)), 1e-30) / uniform_filter(rest[sel], (3, 5)))
+        out[f"snr_peak/{cat}"] = np.clip(local.max(0), -100, 100).astype(np.float16)
+        g = local[: local.shape[0] // 4 * 4].reshape(-1, 4, local.shape[1]).max(1)
+        out[f"snr_lines/{cat}"] = np.clip(-np.sort(-g, axis=0)[:4].T, -100, 100).astype(np.float16)
     for i, (q, tc, p, shaft) in enumerate(drone_tracks):
         tau, r = ac.emission_time(t, tc, p, mic)
         dtau = np.gradient(tau, t)
