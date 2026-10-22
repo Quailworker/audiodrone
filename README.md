@@ -2,7 +2,7 @@
 
 Acoustic drone detection: a scenario simulator that renders what microphones hear while drones (and things that sound like them) fly past, and a CNN that detects drones in that audio frame by frame (10 ms frames).
 
-- **design.md** is the full design: theory, maths, decisions (D-01 to D-36), results (section 5.9).
+- **design.md** is the full design: theory, maths, decisions (D-01 to D-37), results (section 5.9).
 - **AGENTS.md** is a step-by-step checklist for setting up the test environment and checking the published models.
 - **NEXT_STEPS.md** is the to-do list: what to build next, in order, and how to start it on the desktop.
 - **UPGRADES.md** lists where the best model falls short, ranked, and the planned upgrades.
