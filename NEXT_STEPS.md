@@ -1,4 +1,4 @@
-# Next steps (as of design v0.8, 2026-10-23)
+# Next steps (as of design v0.8.1, 2026-10-23)
 
 What to build next, in order. Details and reasons are in `design.md`; this page is the to-do list.
 
@@ -47,7 +47,7 @@ Uses the Phase 1 tracks. Instructions to be written after Phase 1 reports.
 ## In parallel (independent of the phases)
 
 - **Detector retrain** (UPGRADES.md priorities 2–6): recall gate, recording-chain augmentation, recall-first thresholds, hard mixtures, wider mid class. One retrain on Anna's 3080. No real negatives (D-25).
-- **Hardware:** choose and order 4-channel synchronised audio for the first tetrahedral cluster (open question 2).
+- **Hardware (D-37, design 9.6):** each cluster is an **ESP32-S3 (8 MB PSRAM) with 4 TDM MEMS mics on one I²S bus**, sending packets; no Raspberry Pi. Build one on the bench first: check the 4 channels are sample-synchronised, stream raw audio over Wi-Fi (mode A) for the prototype, then add the comb trigger and buffered sending (mode B). About $110–235 per cluster (open questions 35, 36).
 - **Field test** (design 14.7): own flyovers, uncompressed WAV, GPS flight log, plus drone-free recordings at the same site. Check recording law first (F10).
 
 ## Decisions needed from Joseph

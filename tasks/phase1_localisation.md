@@ -82,7 +82,10 @@ Today `frame_labels` is computed for mic 0 only. Compute labels (drone audible /
 - **Tonal signals:** drones are mostly tones, which give repeating GCC peaks (F4). Check how often the peak is wrong; if it is a problem, try weighting toward the drone's broadband component, or combining several frames.
 - **Unit tests** (`tests/` or `loc/test_doa.py`, run with pytest): a synthetic plane wave from a known direction (white noise and a harmonic comb) must be recovered within 1–2° at high SNR, for both tetrahedron and flat layouts.
 
-**Done when:** tests pass; per-frame direction outputs exist for all rendered scenes.
+- **ESP32-S3 target (design D-37, 9.6):** cluster nodes are ESP32-S3s, not Raspberry Pis. Keep `loc/doa.py` portable: fixed FFT sizes, no dynamic allocation in the per-frame path, and a cheap option (coarse grid or least squares on the 6 pair delays) alongside full SRP-PHAT. Report the operations per frame for each option so we can judge whether it fits on the ESP32 (mode B) or must run on the server (mode A).
+- **Sample rate experiment:** also run direction finding on the audio downsampled to **4 kHz** (direction finding only uses < 860 Hz) and report any accuracy change. Mode A could then send the direction-finding channels at 4 kHz.
+
+**Done when:** tests pass; per-frame direction outputs exist for all rendered scenes; operations per frame reported for each option.
 
 ---
 

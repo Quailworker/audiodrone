@@ -1,6 +1,7 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.8, 2026-10-23.
+- **Status:** draft v0.8.1, 2026-10-23.
+  - v0.8.1 replaces the Raspberry Pi cluster computer with an **ESP32-S3** that sends packets (Joseph), D-37, section 9.6. Revises D-10: direction finding may run on the server when raw multichannel audio is sent. (Numbered v0.8.1 because v0.9 is reserved for the Phase 1 localisation results.)
   - v0.8 adds the alerting side (Joseph's idea: Nemotron as the brain for people, alerting nearby soldiers and civilians and predicting the danger area for early evacuation). Decisions D-34 (Nemotron as the communication layer; fixed-logic alarm path), D-35 (danger-zone prediction and tiered alerts, 13.3–13.4) and D-36 (tripwire clusters for warning time, 8.4).
   - v0.7 records Joseph's decisions: **all drones count** (D-18), **no real negatives in training** so the detector stays sensitive (D-25, open question 21), **alert on every engine and rate it** (D-28). Adds the drone-likelihood rating stage (D-32, section 5.12) and recall-first tuning (D-33). UPGRADES.md re-prioritised.
   - v0.6 compares the v0.5 results with the theory (5.11): what matched, three deviations (model relies on > 1 kHz; real range shorter than estimated, G ≈ 2–7 dB; log vs mel draw in sim), and what is still untested. Updates 8.3, F3, section 15, open questions and the Al-Emadi licence caveat (18).
@@ -108,7 +109,7 @@ SERVER                                                     [J] server + CNN
 | D-07 | Each cluster is a **4-mic regular tetrahedron** (originally 3 mics) | [J←C] | derived | D-06 | **Under review (D-30)** |
 | D-08 | Tetrahedron edge **20 cm**; direction finding uses frequencies **< 860 Hz** | [C] | derived | D-07 | Proposed |
 | D-09 | Cluster ranges must **overlap substantially** (spacing ≈ range), not slightly | [C revises J] | derived | D-06 | Proposed |
-| D-10 | **Direction finding runs on the cluster**; server receives directions, not only spectrograms | [C revises J] | derived | D-06, D-07 | Proposed |
+| D-10 | **Direction finding runs on the cluster**; server receives directions, not only spectrograms | [C revises J] | derived | D-06, D-07 | Proposed. **v0.8.1:** revised by D-37: in mode A (raw 4-channel audio streamed, phase kept) direction finding runs on the server; in mode B it can run on the ESP32 |
 | D-11 | Use a **time-frequency functional** to get one frequency's amplitude and exact frequency over time | [J] | simulated | D-01 | Adopted |
 | D-12 | Use a **Kalman filter** (EKF) to estimate and predict position, height and velocity | [J] | simulated | D-07, D-10 | **Adopted** |
 | D-13 | Kalman state includes the drone's pitch f₀, with **fast-changing f₀** allowed | [C] | simulated | D-12 | Proposed |
@@ -135,6 +136,7 @@ SERVER                                                     [J] server + CNN
 | D-34 | **Nemotron is the communication and reasoning layer** for people (alerts, advice, questions, summaries). The alarm path is **fixed logic**; Nemotron is never the only way an alert goes out | [J] Nemotron as the brain; [C] split | — | D-32, D-35 | **Adopted** (13.4) |
 | D-35 | **Danger zone** = closest-approach and arrival-time calculation along the Kalman track, widened by its uncertainty; **tiered alerts** (advisory / take cover / evacuate), evacuation approved by an operator unless time is too short | [J] early evacuation; [C] maths and tiers | derived | D-12, D-32, D-34 | **Adopted** (13.3, 13.4) |
 | D-36 | **Tripwire clusters** along approach routes, placed far enough out for a required warning time (distance = warning time × drone speed) | [J] early evacuation; [C] geometry | derived | D-06, D-09, D-35 | **Adopted** (8.4) |
+| D-37 | **Cluster node = ESP32-S3** (no Raspberry Pi) with 4 TDM MEMS mics on one I²S bus, sending packets. **Mode B** (trigger, then send buffered audio) for deployment; **mode A** (stream raw 4-channel audio) for prototypes and small Wi-Fi sites | [J] ESP32 + packets; [C] modes, bandwidth | derived; estimates | D-06, D-07, D-10 | **Adopted** (9.6) |
 
 ---
 
@@ -939,7 +941,7 @@ Not suitable: parabolic dishes and shotgun mics. A dish only helps when its diam
 |---|---|
 | Array mics | TDM MEMS (e.g. ICS-52000), or I²S MEMS (INMP441, ICS-43434, SPH0645, IM69D130; SNR ~61–69 dB) |
 | 4-channel alternative | 4-input USB audio interface with small measurement capsules |
-| Cluster computer | Raspberry Pi 4/5 |
+| Cluster computer | **ESP32-S3 with 8 MB PSRAM (D-37, 9.6)**. Raspberry Pi 4/5 was the earlier choice |
 | Timing and position | GPS module |
 | Single reference mic for testing | miniDSP UMIK-1 or Dayton UMM-6 (calibrated USB measurement mics) |
 | Off-the-shelf arrays (planar, so prototyping only) | ReSpeaker USB Mic Array v2.0 (use 6-channel raw firmware), miniDSP UMA-8 / UMA-16 |
@@ -1147,6 +1149,57 @@ Clusters send directions, so timestamps only need to agree to **tens of millisec
 ### 9.5 Matching detections across clusters [C]
 
 The same drone has nearly the same f₀ at every cluster (within a few % of Doppler). Match detections by **time + f₀** before triangulating. *(derived)*
+
+### 9.6 Cluster hardware: ESP32-S3 sending packets (D-37)
+
+**Joseph's decision [J]:** no Raspberry Pi; each cluster is an **ESP32** that just emits packets.
+
+**What the ESP32-S3 covers [C]** *(capabilities from general knowledge; check datasheets)*
+- **4 sample-synchronised mics:** its I²S peripheral supports TDM, so 4 TDM MEMS mics (e.g. ICS-52000) share one bus and one clock. Avoid splitting the mics over two stereo I²S peripherals: their clocks can drift apart, which breaks direction finding.
+- **Power:** about 0.5–1 W with Wi-Fi (vs 5–8 W for a Raspberry Pi), so a small solar panel and battery are enough.
+- **Buffer:** 8 MB PSRAM holds about 60 s of 4-channel audio at 16 kHz:
+  ```
+  4 ch × 16,000 samples/s × 2 bytes = 128 kB/s   →   8 MB / 128 kB/s ≈ 60 s
+  ```
+- **Light processing:** FFTs and the harmonic-comb trigger (5.2) fit easily. Direction finding from the 6 pairs is possible with a coarse grid or least squares on the pair delays (to be measured in Phase 1).
+- **Not possible:** CNN14. The CNN stays on the server (as before).
+
+**Bandwidth** *(derived)*. Streaming all 4 channels continuously:
+```
+4 ch × 16,000 × 16 bit = 1.02 Mbit/s per cluster
+per month: 1.02 Mbit/s × 2.6 × 10⁶ s ≈ 330 GB per cluster
+```
+Fine on Wi-Fi for a handful of clusters near an access point. Not workable over LTE, or for ~100 clusters (100+ Mbit/s into the server).
+
+**Two operating modes [C]**
+
+| Mode | ESP32 does | Sends | Use for |
+|---|---|---|---|
+| **A. Stream** | Capture only | Raw 4-channel audio, ~1 Mbit/s continuous | Prototypes and small Wi-Fi sites. Simplest firmware. **Direction finding runs on the server** (raw packets keep the phase; revises D-10) |
+| **B. Trigger, then send** (deployment) | Capture, comb trigger, optionally direction finding | Small status packets continuously (a few kbit/s); on a trigger, a few seconds of 4-channel audio from the buffer | Real deployments; scales to hundreds of nodes; works over LTE or NB-IoT |
+
+**Sample rates [C]**
+- **CNN channel:** keep ≥ 16 kHz. The CNN relies on content above 1 kHz (5.11.2), and the real tests showed it handles 16 kHz recordings (5.10.2).
+- **Direction-finding channels:** only need content below ~860 Hz (7.4), so they can be sent at 4 kHz to save bandwidth.
+
+**Other requirements [C]**
+- **Connectivity:** outdoor Wi-Fi reaches roughly 50–100 m, about the cluster spacing. Use external antennas, an ESP mesh, or a gateway per group of clusters. LoRa can carry status packets but not audio.
+- **Time sync:** the shared TDM bus keeps a cluster's mics in sync. Across clusters, millisecond timestamps (GPS or NTP) are enough to line up directions (9.4).
+- **Fleet management:** over-the-air firmware updates for hundreds of nodes; **encrypted, authenticated packets**, so nobody can inject fake drones or hide a real one.
+
+**Cost per cluster** *(estimate, USD)*
+
+| Part | Cost |
+|---|---|
+| ESP32-S3 board with 8 MB PSRAM | $8–15 |
+| 4 TDM MEMS mics | $20–40 |
+| GPS module | $10–20 |
+| Enclosure, mount, windshields | $40–100 |
+| Small solar panel + battery | $30–60 |
+| **Total (Wi-Fi)** | **~$110–235** |
+| + LTE / NB-IoT modem if no Wi-Fi | +$30–50, plus a data plan |
+
+About half the Raspberry Pi version. A protected site (9–16 clusters) costs roughly $1k–4k; 1 km² (~115 clusters at 100 m spacing) roughly $13k–27k.
 
 ---
 
@@ -1649,6 +1702,8 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 32. Delivery channels (phone, SMS, sirens, ATAK / Cursor-on-Target) and who may approve an evacuation (D-35).
 33. Likely approach routes, expected drone speeds and the warning time required: these set the tripwire ring distance and sectors (D-36).
 34. Danger radius R, look-ahead limit T_alert and widening factor k for the alert rule; tune in the scenario simulator (13.3).
+35. ESP32-S3 node: choose the TDM mic and board; verify on the bench that the 4 channels are sample-synchronised and that the comb trigger and (optionally) direction finding fit in real time (D-37).
+36. Network for the nodes: Wi-Fi with external antennas, ESP mesh, gateways or LTE/NB-IoT; packet encryption and authentication; over-the-air updates (D-37).
 
 ---
 
