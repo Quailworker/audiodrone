@@ -1,6 +1,7 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.7, 2026-10-23.
+- **Status:** draft v0.8, 2026-10-23.
+  - v0.8 adds the alerting side (Joseph's idea: Nemotron as the brain for people, alerting nearby soldiers and civilians and predicting the danger area for early evacuation). Decisions D-34 (Nemotron as the communication layer; fixed-logic alarm path), D-35 (danger-zone prediction and tiered alerts, 13.3–13.4) and D-36 (tripwire clusters for warning time, 8.4).
   - v0.7 records Joseph's decisions: **all drones count** (D-18), **no real negatives in training** so the detector stays sensitive (D-25, open question 21), **alert on every engine and rate it** (D-28). Adds the drone-likelihood rating stage (D-32, section 5.12) and recall-first tuning (D-33). UPGRADES.md re-prioritised.
   - v0.6 compares the v0.5 results with the theory (5.11): what matched, three deviations (model relies on > 1 kHz; real range shorter than estimated, G ≈ 2–7 dB; log vs mel draw in sim), and what is still untested. Updates 8.3, F3, section 15, open questions and the Al-Emadi licence caveat (18).
   - v0.5 adds a failure analysis of model B (5.10): real-sound false alarms (critical), codec and high-pass sensitivity, moving engines, masking, real detection range ~150 m.
@@ -131,6 +132,9 @@ SERVER                                                     [J] server + CNN
 | D-31 | Field test protocol: drone passes at several distances with a flight log, plus no-drone and confuser recordings | [J] test; [C] protocol | — | D-25 | Proposed |
 | D-32 | **Drone-likelihood rating** after the CNN: every alert is scored from CNN probability × height × speed × persistence; **low and slow → probably not a drone** | [J] rule; [C] factors and thresholds | open: thresholds to tune | D-12, D-14, D-28, D-07/D-30 | **Adopted** (5.12) |
 | D-33 | Detector tuned for **recall**: drone thresholds near 0.5; release gate on recall (all Svanström drone clips detected, IDMT ≤ 50 m ≥ 95 %); false-alarm rate reported but not a gate | [J] intent; [C] numbers | — | D-25, D-32 | **Adopted** (5.12) |
+| D-34 | **Nemotron is the communication and reasoning layer** for people (alerts, advice, questions, summaries). The alarm path is **fixed logic**; Nemotron is never the only way an alert goes out | [J] Nemotron as the brain; [C] split | — | D-32, D-35 | **Adopted** (13.4) |
+| D-35 | **Danger zone** = closest-approach and arrival-time calculation along the Kalman track, widened by its uncertainty; **tiered alerts** (advisory / take cover / evacuate), evacuation approved by an operator unless time is too short | [J] early evacuation; [C] maths and tiers | derived | D-12, D-32, D-34 | **Adopted** (13.3, 13.4) |
+| D-36 | **Tripwire clusters** along approach routes, placed far enough out for a required warning time (distance = warning time × drone speed) | [J] early evacuation; [C] geometry | derived | D-06, D-09, D-35 | **Adopted** (8.4) |
 
 ---
 
@@ -1073,6 +1077,39 @@ G = detection margin from narrowband processing, assumed 10–20 dB
 
 **Update from real data (v0.6, 5.11.3):** the real Phantom 4 range at a rural site was ~100–150 m, not the 320–1,000 m in the table. Back-calculated G ≈ 2–7 dB for the single-mic CNN (or a quieter source). The table above is **optimistic**. Use ~100 m for cluster spacing until Joseph's own flights measure it.
 
+### 8.4 Tripwire clusters for warning time (D-36)
+
+**Joseph's goal [J]:** warn people early enough to evacuate.
+
+**Problem [C]** *(derived)*: warning time = detection distance ÷ drone speed. With detection at ~100–150 m (5.11.3), a cluster at the protected site gives only seconds:
+```
+150 m at 25 m/s → 6 s        150 m at 10 m/s → 15 s
+```
+That is enough to take cover, not to evacuate.
+
+**Fix [C]:** place an outer **tripwire ring** of clusters along the likely approach routes, at a distance set by the warning time needed:
+```
+ring distance D = required warning time × drone speed
+```
+
+| Required warning | 10 m/s (small multirotor) | 25 m/s (fast multirotor) | 50 m/s (fast fixed-wing) |
+|---|---|---|---|
+| 30 s | 300 m | 750 m | 1,500 m |
+| 60 s | 600 m | 1,500 m | 3,000 m |
+| 120 s | 1,200 m | 3,000 m | 6,000 m |
+
+*(speeds are estimates; set them from the drone types expected)*
+
+**Spacing along the ring** *(derived)*:
+- **To detect at all:** the worst point is midway between two clusters, s/2 from each. A drone at height h there is at slant range √(h² + (s/2)²), so:
+  ```
+  s ≤ 2·√(R² − h²)        R = 125 m, h = 100 m → s ≤ 150 m;   h = 30 m → s ≤ 243 m
+  ```
+- **To also get direction and speed at the ring** (needed to start the danger-zone prediction early): two clusters must hear it, so s ≤ R (8.2).
+- **Number of clusters:** a full ring needs about N ≈ 2πD/s. For D = 1,500 m and s = 150 m, N ≈ 63. Covering only the likely approach sectors reduces this.
+
+**Inner clusters** near the site keep the dense spacing of 8.2 for accurate tracking close in. This adds to the coverage cost of F3.
+
 ---
 
 ## 9. What runs on the cluster vs the server
@@ -1307,6 +1344,83 @@ s = s⁻ + K·y,    P = (I − K·H)·P⁻·(I − K·H)ᵀ + K·R·Kᵀ   (Jose
 - Several rotors overlapping in the tracked harmonic.
 - Filter initialisation, which should come from a first two-cluster triangulation.
 
+### 13.3 Danger-zone prediction (D-35)
+
+**Joseph's idea [J]:** calculate the expected danger site so people can evacuate early.
+
+**Method [C]** *(derived)*. From the Kalman state: drone position **p**, velocity **v**, covariance P. For each protected site **s**, let Δ**p** = **p** − **s**. Assuming straight-line flight, the distance τ seconds ahead is:
+```
+d(τ)² = |Δp + v·τ|²
+```
+
+**Closest approach.** Set the derivative to zero:
+```
+2·(Δp + v·τ)·v = 0   →   τ* = −(Δp·v) / |v|²          (τ* ≤ 0: already moving away)
+d_min = |Δp + v·τ*|
+```
+
+**Arrival at danger radius R.** Solve |Δ**p** + **v**τ|² = R²:
+```
+|v|²·τ² + 2(Δp·v)·τ + (|Δp|² − R²) = 0
+τ_arrive = [ −(Δp·v) − √((Δp·v)² − |v|²·(|Δp|² − R²)) ] / |v|²       (earlier root; no real root = no arrival)
+```
+
+**Uncertainty.** Drones turn, so confidence falls with look-ahead time. The Kalman predict step gives P(τ). Widen the radius to R + k·σ(τ), where σ(τ) is the position standard deviation at τ (k ≈ 2–3). The danger zone is a **corridor along the predicted path that widens with time**, plus R around its end, not a single point.
+
+**Alert rule (example):**
+```
+d_min < R + k·σ(τ*)   and   0 < τ_arrive < T_alert   →   site is threatened, time to arrival τ_arrive
+```
+
+**Recalculated** every Kalman update (every 0.1 s), so the zone shrinks or moves as the track firms up. Trust a few seconds ahead more than longer horizons (13.2).
+
+### 13.4 Alerting and the Nemotron layer (D-34, D-35)
+
+**Joseph's idea [J]** (paraphrased):
+
+> Use **Nemotron in the user interaction process**, as the brains of the system. When a drone is detected, Nemotron **alerts all nearby soldiers and people** and can calculate the **expected danger site for early evacuation**.
+
+**Split [C]:** a language model can be slow (seconds), can give different answers to the same input, can get numbers wrong, and can be unavailable. The step that tells people to take cover must not depend on it.
+
+| Layer | Job | Built with |
+|---|---|---|
+| **Fixed-logic core** (no language model) | Detection → rating (D-32) → Kalman track → danger zone (13.3) → alert rules → **first alert within ~1 s** with a template message | Ordinary code; deterministic and testable |
+| **Nemotron layer** | Writes each person's message (e.g. "go to shelter B; shelter A is in the predicted path"), answers questions, explains the evidence, summarises for operators, prepares evacuation requests, sends follow-up updates | Nemotron calling tools on the core and on Zetaris |
+
+**Rules for the Nemotron layer [C]**
+- If it is slow or down, **the core's alerts still go out**.
+- Every number in its messages (positions, times, distances) must come from a tool result, never from the model itself.
+- Every message and tool call is logged.
+
+**Alert tiers (D-35)** [C]
+
+| Tier | Trigger | Action |
+|---|---|---|
+| Advisory | Possible drone: CNN only, no position | Operators notified; Nemotron summarises the evidence |
+| Take cover | Drone likely (airborne, moving, persistent; D-32) and heading towards a site | **Automatic** alert to everyone in the danger zone |
+| Evacuate | Confirmed track with a danger zone over a site and enough time to move | Nemotron prepares the order; **operator approves with one tap**. Automatic only when τ_arrive is too short to wait |
+
+Tiers exist because of false alarms: the detector alone still fires on 76–87 % of non-drone clips (5.11). Evacuating on false alarms causes alarm fatigue, and people stop responding.
+
+**Proposed Nemotron tools [C]**
+
+| Tool | Source |
+|---|---|
+| `get_tracks()`, `get_danger_zone(track)` | Fixed-logic core |
+| `explain_evidence(track)`: clusters, directions, f₀, rating factors | Core + Zetaris |
+| `people_in_zone(zone)`, `nearest_shelter(person, avoid=zone)` | Zetaris (personnel/unit locations, shelters, site boundaries) |
+| `draft_message(audience, tier)`, `request_operator_approval(order)`, `send_followup(group, text)` | Delivery service |
+
+The first alert is sent by the core, not through these tools.
+
+**Sponsor tools [C]** *(capabilities unverified; confirm before relying on them)*
+- **Zetaris** (MCP, query in place): personnel and unit locations, shelters, site boundaries, cluster reports and tracks. Its access controls matter, because personnel locations are sensitive.
+- **Meterless Nightshift** (local OpenAI-compatible endpoint): runs Nemotron **on site**, with no internet needed and location data kept off the cloud. Check that it can serve a Nemotron model; otherwise use NVIDIA's own serving.
+
+**Delivery:** phone notifications, SMS, sirens; for military users, the systems already in use (e.g. ATAK / Cursor-on-Target).
+
+**Dependency:** the take-cover and evacuate tiers need position and velocity (D-12, D-14) and the rating (D-32). Until localisation works, only the advisory tier is meaningful.
+
 ---
 
 ## 14. Simulation and training data
@@ -1530,6 +1644,11 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 27. Measure real drone source levels (L_src at 1 m) from the IDMT recordings and GPS distances, to separate "quiet source" from "small G" in 5.11.3.
 28. Build the D-32 rating in the scenario simulator (true height and speed known) and tune its thresholds; report the false-alarm reduction and any recall lost.
 29. Choose tetrahedra (D-07) or flat ground clusters (D-30): D-32's single-cluster height clue only works with the tetrahedron (5.12.3).
+30. Which Nemotron model, and how it is served: confirm Meterless Nightshift can serve it locally, otherwise NVIDIA's own serving (D-34).
+31. Where personnel, unit and shelter locations come from, and who may access them (Zetaris sources and access control; D-34).
+32. Delivery channels (phone, SMS, sirens, ATAK / Cursor-on-Target) and who may approve an evacuation (D-35).
+33. Likely approach routes, expected drone speeds and the warning time required: these set the tripwire ring distance and sectors (D-36).
+34. Danger radius R, look-ahead limit T_alert and widening factor k for the alert rule; tune in the scenario simulator (13.3).
 
 ---
 
