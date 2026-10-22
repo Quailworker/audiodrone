@@ -1,6 +1,7 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.5, 2026-10-23.
+- **Status:** draft v0.6, 2026-10-23.
+  - v0.6 compares the v0.5 results with the theory (5.11): what matched, three deviations (model relies on > 1 kHz; real range shorter than estimated, G ≈ 2–7 dB; log vs mel draw in sim), and what is still untested. Updates 8.3, F3, section 15, open questions and the Al-Emadi licence caveat (18).
   - v0.5 adds a failure analysis of model B (5.10): real-sound false alarms (critical), codec and high-pass sensitivity, moving engines, masking, real detection range ~150 m.
   - v0.5 records the first trained models and how to replicate them: the 6,400-scene sim_v1 dataset, the frame-label rule actually used (`snr_lines2`, 5.8.6), the training recipe, results for CNN14 + log-frequency (B), CNN14 + stock mel (A) and a small CNN trained from scratch (C), and the fixes found by code review (5.9). Full scale changed to 120 dB SPL (14.6). Replication steps are in README.md; AGENTS.md is the test checklist.
   - v0.4 records the CNN build decisions: the real CNN14 checkpoint (32 kHz), render-then-convert, sim-only training with Joseph's own field recordings as the test, detection-only scope, drone classes incl. two-stroke (4.4), the scenario simulator (14.6), the field test protocol (14.7) and flat ground clusters as an alternative to the tetrahedron (7.8). New decisions D-24 to D-31.
@@ -677,6 +678,65 @@ Follow-up real tests (Svanström et al. ground-mic clips, IDMT by drone and rang
 
 Not finished: the 4,000-scene extra sim test set (rendered, in `data/sim_eval`) was only 6 % predicted when the run was stopped for low memory; the 700-scene results above stand on their own.
 
+### 5.11 Theory vs results (v0.6) [C]
+
+A check of the v0.5 results (5.9, 5.10, `results/real_world/REAL_TESTS.md`) against what the theory in this document predicted. **Scope:** these results are **single-microphone detection only** (channel 0). Nothing here tests direction finding, height, the Kalman filter, Doppler velocity or the frequency-tracking functional (5.11.4).
+
+#### 5.11.1 Predictions that held
+
+| Prediction (where) | Result | Verdict |
+|---|---|---|
+| The harmonic comb is the drone signature (4, D-01) | Real DJI drones detected with sim-only training (≥ 98 % within 50 m); broadband sounds barely trigger it (rain 2 %), tonal ones do | Consistent |
+| The comb alone is not enough; confusers also make combs (5.2, F5) | drone_electric fires on 76–82 % of ESC-50 clips (crows, horns, sirens, voices) (W1) | Strongly confirmed; now the main problem |
+| Simulated negatives will not transfer (5.6) | REAL_TESTS: "the physics transfers; the negatives don't" | Consistent |
+| Motors share the drone's comb; the tracker should reject stationary sources (F5) | Camera-mount servo whine flagged on 96–100 % of frames | Consistent: correct physics, needs the motion check downstream |
+| Pretraining helps (D-22) | CNN14 +0.04 to +0.09 F1 over scratch; real drone frames 91 % (B) vs 72 % (C) | Consistent |
+| Big props → low BPF and dense harmonics; frequency alone cannot give type (4.2, D-05) | Big slow electric drones called "engine" (W6) | Consistent |
+| Several similar drones are hard to separate (F6) | Recall 92.6 % → 80.5 % with two drones (W7) | Consistent |
+| Background type matters more than the SNR number (14.4) | Recall 56 % under 65–75 dBA backgrounds; ~54 % when an aircraft or engine dominates (W4) | Consistent |
+| The closest drone is the loudest, so the easiest | Sim showed 76 % at 0–25 m, but that was the metric: 90 % on audible frames (5.10.2); real flights 99 % | Consistent after correction |
+| Mics need low-frequency response (7.5) | High-pass at 400 Hz: F1 0.92 → 0.72, false positives ×9 (W2) | Consistent |
+| Every +6 dB of source level doubles the range (8.3) | Smaller Mavic falls off sooner (29 % at 50–100 m); larger Align reaches further (80 % at 100–150 m) | Consistent in scaling |
+
+#### 5.11.2 Deviation 1: the model listens mostly above 1 kHz
+
+- **Theory emphasis:** the blade-passing fundamental, 50–500 Hz (4.1, 5.2).
+- **Result:** with only content above 1 kHz kept, drone_electric still fires on 98 % of clips (W1 occlusion test). The electric head relies mainly on upper harmonics and motor whine.
+- **What this explains** *(derived from sections already in this document)*:
+  1. **Why log vs mel is a draw in sim (5.9.4, finding 2).** Mel is linear below ~700 Hz and logarithmic above (5.8.3):
+     ```
+     m(f) ≈ 1.61·f  (f ≪ 700 Hz),    m(f) ≈ 2595·log₁₀(f/700)  (f ≫ 700 Hz)
+     ```
+     Where the model looks (> 1 kHz), both front ends are already logarithmic. The log-frequency advantage of D-19 was predicted for the low band, which the model uses little. On real audio B still beat A (hovering Phantom 0.94 vs 0.77; drone-vs-background AUC 0.84 vs 0.77), so D-19 is **partly** supported.
+  2. **Why electric drones fade sooner than two-strokes.** Air absorption grows with frequency (ISO 9613-1). A model relying on > 1 kHz loses the drone sooner than the low, loud engine tones: sim electric fades past ~100 m, two-strokes are heard half the time at 200–400 m.
+  3. **Why everyday sounds trigger it.** Most everyday tonal sounds (voices, birds, horns, sirens) sit at 0.3–4 kHz, where the electric head listens.
+- **Open:** whether pushing the model to use the low band (e.g. real tonal negatives above 1 kHz) would recover range in noise and widen the B-vs-A gap (open question 26).
+
+#### 5.11.3 Deviation 2: real detection range is shorter than estimated
+
+- **Estimate (8.3):** `r_max = 10^((L_src − L_bg + G)/20)`. Quiet rural (40 dBA), 80 dB drone: 320 m (G = 10 dB) to 1,000 m (G = 20 dB).
+- **Result:** Phantom 4, rural site: 49 % at 100–150 m, 3.5 % at 150–200 m, so r ≈ 125 m.
+- **Back-calculation** *(derived)*:
+  ```
+  20·log₁₀(125) ≈ 42 dB   →   L_src − L_bg + G ≈ 42
+  L_src = 80, L_bg ≈ 40–45   →   G ≈ 2–7 dB
+  ```
+- **Meaning:** the single-mic CNN detects the drone only a few dB below the background, not 10–20 dB below as assumed. Alternatively the Phantom is quieter than 80 dB at 1 m (open question 27). Either way, **plan cluster spacing from ~100 m, not 300 m** (8.2, F3).
+
+#### 5.11.4 Not yet tested
+
+| Theory | Decisions | How it could be tested |
+|---|---|---|
+| Tetrahedral direction finding, height | D-07, D-08, D-14 | IDMT recordings are 8-channel array data with GPS: real drone direction finding without new recordings (open question 25) |
+| Triangulation, towards/away | D-15 | Needs two or more clusters (field test) |
+| Multi-cluster Doppler velocity, Kalman filter | D-12, D-13, D-16 | Needs per-rotor simulation first (F2), then the field test |
+| Frequency-tracking functional | D-11 | Can be run on IDMT or Svanström drone clips now |
+| Direction accuracy assumption (σ_u ≈ 0.02) | F4 | Same as the first row |
+
+#### 5.11.5 Summary
+
+The detection results fit the theory: the predicted risks (tonal false alarms, type confusion, masking) all appeared. The useful new information is in the deviations. The model relies on content above 1 kHz, and the real range implies a much smaller detection margin (G ≈ 2–7 dB). These change the range model and cluster spacing, and partly explain why log vs mel was a draw.
+
 ---
 
 ## 6. The time-frequency functional [J]
@@ -931,6 +991,8 @@ G = detection margin from narrowband processing, assumed 10–20 dB
 - An M-mic array adds about 10·log₁₀(M) dB: 4 mics ≈ +6 dB, about 2× range.
 - **G should be measured** from the detector's detection-vs-SNR curve, not assumed.
 - Wind, temperature layers and buildings can shrink range a lot beyond ~100 m.
+
+**Update from real data (v0.6, 5.11.3):** the real Phantom 4 range at a rural site was ~100–150 m, not the 320–1,000 m in the table. Back-calculated G ≈ 2–7 dB for the single-mic CNN (or a quieter source). The table above is **optimistic**. Use ~100 m for cluster spacing until Joseph's own flights measure it.
 
 ---
 
@@ -1311,6 +1373,9 @@ Recorded so that similar mistakes are easier to spot.
 | Design v0.3, D-22 | Called for a "frame-level 16 kHz" CNN14; no such checkpoint exists (16 kHz is clip-level only) | Use NeMo's `Cnn14_DecisionLevelMax` at 32 kHz; render at 32 kHz |
 | Appendix A prototype code | Kept only in a temporary session folder, which was later deleted | Rebuilt in the repo (`sim/`); anything worth keeping now goes into git |
 | "Noise sound database from a sponsor" | Searched the event page, Gmail (student account) and Drive; nothing found | Unresolved; public datasets listed in section 18 |
+| Range estimate (8.3) | Assumed a detection margin G of 10–20 dB; real flights imply G ≈ 2–7 dB, so the estimated range was 3–8× too long | Corrected in 8.3 and 5.11.3; spacing planned from ~100 m |
+| Dataset suggestion (section 18, early discussion) | Recommended the Al-Emadi DroneAudioDataset without checking its licence; it forbids security and surveillance use | Caveat added in section 18; REAL_TESTS.md had already excluded it |
+| Open question 10 | Recorded that `~/drone18_field_test` and `~/field_recorder` don't exist; `~/drone18_field_test` does exist on Joseph's Linux machine | Corrected in open question 10 |
 
 ---
 
@@ -1333,7 +1398,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 |---|---|---|---|---|---|
 | F1 | **No validation on real audio.** All accuracy figures come from Claude's simulator, tested against itself (clean comb, omnidirectional source, no echoes, no wind) | Sub-metre position, 0.1 m/s velocity, 0.3 m height and 0.2 Hz tracking are best-case and may be far off | D-12 to D-16 | [C] | Record a real drone with a GPS log using one or two prototype clusters; measure actual errors first. v0.4: Joseph's field recordings are now the planned test (D-25, 14.7) |
 | F2 | **A multirotor has no single f₀.** Each rotor has its own BPF, a few % apart, changing constantly (that is how it steers) | Doppler differences between clusters are also only a few % (up to ~2v/c ≈ 7% at 12 m/s). If clusters lock onto different rotors' lines, the error is as large as the signal. The Kalman simulation used one clean tone | D-13, D-16, 9.5 | [C] | Model rotor lines separately, or track each harmonic's line-group centre; re-run simulations with rotor spread |
-| F3 | **Coverage needs many clusters.** Each covers a hexagon of (√3/2)·s². 1 km² needs ~115 clusters at s = 100 m, ~460 at s = 50 m. Urban range ~20–50 m | Cost and maintenance (power, network, weatherproofing, levelling, surveying). The range itself rests on assumed numbers (80 dB at 1 m, G = 10–20 dB) | D-06, D-09 | Range numbers [C]; layout [J] | Measure real range first; scope to protected sites rather than open-area coverage |
+| F3 | **Coverage needs many clusters.** Each covers a hexagon of (√3/2)·s². 1 km² needs ~115 clusters at s = 100 m, ~460 at s = 50 m. Urban range ~20–50 m | Cost and maintenance (power, network, weatherproofing, levelling, surveying). The range itself rests on assumed numbers (80 dB at 1 m, G = 10–20 dB) | D-06, D-09 | Range numbers [C]; layout [J] | Measure real range first; scope to protected sites rather than open-area coverage. **v0.6:** real Phantom 4 range ~100–150 m (5.11.3), so plan s ≈ 100 m (~115 clusters/km²) |
 | F4 | **Direction accuracy is assumed** (σ_u = 0.02, σ_τ = 10 µs) | Tonal signals give repeating GCC-PHAT peaks (ambiguous direction). At 60 Hz, λ = 5.7 m is ~30× the array size. FPV BPF (≥ 750 Hz) is near the 860 Hz alias limit | D-08, D-14 | [C] | Test direction finding on real drone audio with the real array; use the broadband component too; consider a second smaller array or a larger aperture with more mics. v0.4: flat ground clusters (D-30) are worse than a tetrahedron below 45° elevation |
 
 ### 16.2 Significant: needs design work
@@ -1368,7 +1433,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 7. Collect real recordings per drone model for type identification (D-05).
 8. Decide whether a mast cluster is worthwhile, using real data.
 9. Test D-19: train the same CNN on linear vs log-frequency input and compare accuracy on real recordings, especially at RPMs not seen in training.
-10. ~~Check `~/drone18_field_test` and `~/field_recorder`~~ Checked 2026-10-22: neither folder exists. Real test data will be Joseph's own recordings (D-25).
+10. Check `~/drone18_field_test` (D-21, D-25). Correction (v0.6): it **does exist** on Joseph's Linux machine (`/home/quail`, dated 2026-10-14) with `recordings/`, `FIELD_TEST_REPORT.md` and calibration files. Contents not yet reviewed. Whether it is drone audio usable as a real test set is open.
 11. Re-run the velocity and Kalman simulations with per-rotor lines (F2).
 12. Add multi-target tracking, emission-time correction and gating to the Kalman filter (F6, F7).
 13. Fine-tune CNN14 with front ends A and B and compare on real recordings (D-22, D-23). v0.5: trained and compared on sim (5.9, roughly a draw); real recordings still needed.
@@ -1383,6 +1448,9 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 22. Explain the 76 % electric-drone detection at 0–25 m (5.9.4): metric or model?
 23. Decide how to score drone_engine against ground engines (≈ 28 false engine-drone alarms per hour on drone-free scenes, mostly chainsaws and blowers; D-28).
 24. Run B and A on Joseph's flyover recordings (14.7) with `cnn/infer.py`.
+25. Test direction finding (GCC-PHAT) on the IDMT 8-channel array recordings against their GPS positions: the first real check of F4 and D-14 (5.11.4).
+26. Does the electric head's reliance on > 1 kHz (5.11.2) cost range or noise robustness? Test band-limited inputs and real tonal negatives above 1 kHz.
+27. Measure real drone source levels (L_src at 1 m) from the IDMT recordings and GPS distances, to separate "quiet source" from "small G" in 5.11.3.
 
 ---
 
@@ -1399,7 +1467,9 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 
 **Search terms:** Doppler TMA, CPA estimation, LOFAR, GCC-PHAT, SRP-PHAT, MUSIC, TDOA multilateration, acoustic UAV detection and localisation, ISO 9613-1 (atmospheric absorption).
 
-**Datasets** (not checked in this session): ESC-50, UrbanSound8K, FSD50K, DEMAND, MS-SNSD (backgrounds); DroneAudioDataset (Al-Emadi et al.), DREGON (drone audio).
+**Datasets** (not checked in this session): ESC-50, UrbanSound8K, FSD50K, DEMAND, MS-SNSD (backgrounds); DREGON (drone audio). Real tests actually used: see `results/real_world/REAL_TESTS.md` (Fraunhofer IDMT, Svanström et al. 2021, ESC-50).
+
+**Do not use:** DroneAudioDataset (Al-Emadi et al.). Its licence forbids security and surveillance use, which is this project's purpose (found in REAL_TESTS.md; v0.6).
 
 **Pretrained audio models**
 - Kong et al., PANNs: Large-Scale Pretrained Audio Neural Networks. https://arxiv.org/pdf/1912.10211
