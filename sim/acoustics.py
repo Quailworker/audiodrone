@@ -27,15 +27,20 @@ def emission_time(t, t_ctrl, p_ctrl, mic, iters=5):
 
 
 def read_fractional(s, pos):
-    """4-point cubic Lagrange read of s at fractional sample positions pos."""
+    """4-point cubic Lagrange read of s at fractional sample positions pos.
+
+    Positions outside the buffer (sound emitted before the source history starts) read as silence.
+    """
     i = np.floor(pos).astype(np.int64)
     d = (pos - i).astype(np.float32)
+    inside = (i >= 1) & (i <= len(s) - 3)
     i = np.clip(i, 1, len(s) - 3)
     xm1, x0, x1, x2 = s[i - 1], s[i], s[i + 1], s[i + 2]
-    return (-d * (d - 1) * (d - 2) / 6 * xm1
-            + (d + 1) * (d - 1) * (d - 2) / 2 * x0
-            - (d + 1) * d * (d - 2) / 2 * x1
-            + (d + 1) * d * (d - 1) / 6 * x2)
+    y = (-d * (d - 1) * (d - 2) / 6 * xm1
+         + (d + 1) * (d - 1) * (d - 2) / 2 * x0
+         - (d + 1) * d * (d - 2) / 2 * x1
+         + (d + 1) * d * (d - 1) / 6 * x2)
+    return np.where(inside, y, 0).astype(np.float32)
 
 
 def air_absorption_db_per_m(f, temp_c=20.0, rh=70.0, pa_kpa=101.325):

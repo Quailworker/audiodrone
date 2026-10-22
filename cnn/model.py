@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchlibrosa.augmentation import SpecAugmentation
 from torchlibrosa.stft import LogmelFilterBank, Spectrogram
 
 from .panns_models import Cnn14_DecisionLevelMax, init_bn, init_layer
@@ -38,6 +39,23 @@ def bent_mel_filters(n_fft, sr=SR, n_mels=N_MELS, fmin=FMIN, fmax=FMAX, bend_hz=
     return W
 
 
+def make_frontend(frontend):
+    """(Spectrogram, LogmelFilterBank) for "mel" (CNN14's stock, n_fft 1024) or "logf" (bent mel, n_fft 4096).
+
+    Both are fixed transforms (freeze_parameters=True), never trained.
+    """
+    if frontend not in ("mel", "logf"):
+        raise ValueError(frontend)
+    n_fft = 4096 if frontend == "logf" else 1024
+    spec = Spectrogram(n_fft=n_fft, hop_length=HOP, win_length=n_fft, window="hann",
+                       center=True, pad_mode="reflect", freeze_parameters=True)
+    logmel = LogmelFilterBank(sr=SR, n_fft=n_fft, n_mels=N_MELS, fmin=FMIN, fmax=FMAX,
+                              ref=1.0, amin=1e-10, top_db=None, freeze_parameters=True)
+    if frontend == "logf":
+        logmel.melW.data = torch.from_numpy(bent_mel_filters(n_fft))
+    return spec, logmel
+
+
 class DroneCNN14(nn.Module):
     def __init__(self, frontend="logf", checkpoint=None, n_classes=N_CLASSES):
         super().__init__()
@@ -45,12 +63,7 @@ class DroneCNN14(nn.Module):
         if checkpoint:
             base.load_state_dict(torch.load(checkpoint, map_location="cpu", weights_only=False)["model"])
         if frontend == "logf":
-            n_fft = 4096
-            base.spectrogram_extractor = Spectrogram(n_fft=n_fft, hop_length=HOP, win_length=n_fft, window="hann",
-                                                     center=True, pad_mode="reflect", freeze_parameters=True)
-            base.logmel_extractor = LogmelFilterBank(sr=SR, n_fft=n_fft, n_mels=N_MELS, fmin=FMIN, fmax=FMAX,
-                                                     ref=1.0, amin=1e-10, top_db=None, freeze_parameters=True)
-            base.logmel_extractor.melW.data = torch.from_numpy(bent_mel_filters(n_fft))
+            base.spectrogram_extractor, base.logmel_extractor = make_frontend(frontend)
             init_bn(base.bn0)                      # bands now cover different frequencies: relearn
             base.bn0.reset_running_stats()
         elif frontend != "mel":
@@ -97,10 +110,9 @@ class SmallCNN(nn.Module):
 
     def __init__(self, frontend="logf", n_classes=N_CLASSES, widths=(32, 64, 128, 256)):
         super().__init__()
-        ref = DroneCNN14(frontend)                      # reuse the exact front end, no pretrained weights
-        self.spectrogram_extractor = ref.base.spectrogram_extractor
-        self.logmel_extractor = ref.base.logmel_extractor
-        self.spec_augmenter = ref.base.spec_augmenter
+        self.spectrogram_extractor, self.logmel_extractor = make_frontend(frontend)
+        self.spec_augmenter = SpecAugmentation(time_drop_width=64, time_stripes_num=2,
+                                               freq_drop_width=8, freq_stripes_num=2)
         self.bn0 = nn.BatchNorm2d(N_MELS)
         layers, c_in = [], 1
         for c in widths:
@@ -114,7 +126,7 @@ class SmallCNN(nn.Module):
         self.frontend = frontend
 
     def head_parameters(self):
-        return list(self.parameters())
+        return [p for n, p in self.named_parameters() if "extractor" not in n]
 
     def body_parameters(self):
         return []

@@ -80,6 +80,7 @@ class SceneCrops(Dataset):
                 start = int(rng.integers(0, n_total - self.crop))
         else:
             start = (n_total - self.crop) // 2
+        start -= start % HOP                      # keep label frames aligned with model frames
         x, _ = sf.read(str(stem) + ".flac", start=start, frames=self.crop, dtype="float32")
         x = np.pad(x, (0, self.crop - len(x)))
         if self.train:

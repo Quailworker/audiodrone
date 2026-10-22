@@ -2,7 +2,7 @@
 
     python -m sim.render --out data/sim_v1 --start 0 --count 1000 --workers 8 [--heldout] [--prefix pc]
 
-Each scene writes <split>/<name>.flac (24-bit, full scale = 110 dB SPL), .npz (frame labels), .json (meta).
+Each scene writes <split>/<name>.flac (24-bit, full scale = 120 dB SPL (acoustics.FULL_SCALE_DB)), .npz (frame labels), .json (meta).
 Scenes already on disk are skipped, so a run can be restarted.
 """
 import argparse
@@ -19,6 +19,8 @@ import soundfile as sf
 from . import acoustics as ac
 from .scene import FS, sample_and_render
 
+LABEL_VERSION = "snr_lines2"   # bump when audio or labels change; --relabel re-renders older scenes
+
 
 def split_of(seed, heldout):
     if heldout:
@@ -32,7 +34,7 @@ def render_one(job):
     name = f"{prefix}{'h' if heldout else ''}{seed:07d}"
     d = Path(out) / split
     js = d / f"{name}.json"
-    if js.exists() and (not relabel or "snr_lines" in js.read_text()):
+    if js.exists() and (not relabel or f'"labels": "{LABEL_VERSION}"' in js.read_text()):
         return name, "skip", 0.0
     t0 = time.time()
     try:
@@ -44,7 +46,7 @@ def render_one(job):
         sf.write(d / f"{name}.flac", np.clip(x, -1, 1 - 2 ** -23), FS, subtype="PCM_24")
         np.savez_compressed(d / f"{name}.npz", **labels)
         meta["render_s"] = time.time() - t0
-        meta["labels"] = "snr_lines"
+        meta["labels"] = LABEL_VERSION
         (d / f"{name}.json").write_text(json.dumps(meta, default=float))
         return name, "ok", meta["render_s"]
     except Exception:
@@ -59,7 +61,7 @@ def main():
     ap.add_argument("--workers", type=int, default=max(1, os.cpu_count() // 2))
     ap.add_argument("--heldout", action="store_true")
     ap.add_argument("--prefix", default="")
-    ap.add_argument("--relabel", action="store_true", help="re-render scenes whose labels predate snr_lines")
+    ap.add_argument("--relabel", action="store_true", help="re-render scenes rendered with an older LABEL_VERSION")
     a = ap.parse_args()
     jobs = [(s, a.heldout, a.out, a.prefix, a.relabel) for s in range(a.start, a.start + a.count)]
     t0, done = time.time(), 0
