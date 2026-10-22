@@ -31,8 +31,9 @@ if [ -f "weights/Cnn14_DecisionLevelMax_mAP=0.385.pth" ]; then
 fi
 
 # Trained models (GitHub release models-v0.5 of this private repo)
-if [ ! -f models/B_logf_best.pt ]; then
-  gh release download models-v0.5 --dir models --pattern '*.pt' --pattern 'SHA256SUMS' --clobber
+if ! (cd models && sha256sum -c --quiet SHA256SUMS 2>/dev/null); then
+  rm -f models/*_best.pt models/SHA256SUMS
+  gh release download models-v0.5 --dir models --pattern '*.pt' --pattern 'SHA256SUMS'
 fi
 (cd models && sha256sum -c SHA256SUMS)
 echo "setup OK"

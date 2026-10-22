@@ -1327,10 +1327,10 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 18. Which drone and which microphone for the field test (14.7)? Check that the drone sits inside the simulated class ranges.
 19. Compare flat ground clusters, tetrahedra and distributed GPS-synced mics in the scenario simulator: height error vs distance and cluster spacing (D-30).
 20. Tune the frame-label thresholds (v0.5 rule: 2nd tone region ≥ 6 dB positive, 1st < 0 dB negative, 5.8.6) against what a person can hear in the rendered clips.
+21. Decide whether real recorded backgrounds (not drones) may be mixed into training, if the purely synthetic backgrounds turn out too clean.
 22. Explain the 76 % electric-drone detection at 0–25 m (5.9.4): metric or model?
 23. Decide how to score drone_engine against ground engines (≈ 28 false engine-drone alarms per hour on drone-free scenes, mostly chainsaws and blowers; D-28).
 24. Run B and A on Joseph's flyover recordings (14.7) with `cnn/infer.py`.
-21. Decide whether real recorded backgrounds (not drones) may be mixed into training, if the purely synthetic backgrounds turn out too clean.
 
 ---
 
