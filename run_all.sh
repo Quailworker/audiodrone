@@ -5,9 +5,9 @@ cd /home/quail/audiodrone
 PY=~/venvs/audiodrone/bin/python
 log() { echo "[$(date '+%F %T')] $*"; }
 
-anna_done() {
-  ssh -o ConnectTimeout=10 anna 'Get-Content "C:\Users\pc\Joseph AI\audiodrone\data\render_ah.out" -Tail 1 -ErrorAction SilentlyContinue; Get-Content "C:\Users\pc\Joseph AI\audiodrone\data\render_p2.out" -Tail 1 -ErrorAction SilentlyContinue' 2>/dev/null \
-    | grep -c -E "^(400/400|1866/1866) " | grep -q 2
+anna_done() {  # both Anna jobs print a final DONE line (held-out runs after the main job in render_anna.cmd)
+  ssh -o ConnectTimeout=10 anna 'cd "C:\Users\pc\Joseph AI\audiodrone\data"; foreach ($f in "render_ah.out","render_p2.out") { if (Select-String -Path $f -Pattern "^DONE" -Quiet -ErrorAction SilentlyContinue) { "ok" } }' 2>/dev/null \
+    | grep -c ok | grep -q 2
 }
 
 log "waiting for renders"
