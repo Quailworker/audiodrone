@@ -188,8 +188,10 @@ class AlertCore:
             text = f"TAKE COVER: drone heading for {th.site}, {when}, {z:.0f} m up. Get under hard cover now."
             for g in groups:
                 out.append(self._send(t, "take_cover", g["id"], text, group=g["name"], **nums))
+            sent = f"Take-cover sent to {len(groups)} group(s) at {th.site}" if groups else \
+                f"TAKE COVER at {th.site} (no groups on record there)"
             out.append(self._send(t, "take_cover", OPERATORS,
-                                  f"Take-cover sent to {len(groups)} group(s) at {th.site}: drone {tr.id}, {when}, "
+                                  f"{sent}: drone {tr.id}, {when}, "
                                   f"{z:.0f} m up, {speed:.0f} m/s, closest pass {th.d_min:.0f} m (+-{sigma_now:.0f} m).",
                                   groups=[g["id"] for g in groups], **nums))
             out += self._offer_evacuation(t, tr, st, site, th.site, th.tau_arrive, zone_r, groups, nums, allow_auto=True)

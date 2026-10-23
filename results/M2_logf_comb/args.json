@@ -1,0 +1,16 @@
+{
+ "data": [
+  "data\\sim_v1"
+ ],
+ "frontend": "logf_comb",
+ "arch": "cnn14",
+ "checkpoint": "weights/Cnn14_DecisionLevelMax_mAP=0.385.pth",
+ "out": "runs\\M2_logf_comb",
+ "batch": 16,
+ "workers": 3,
+ "stage1_steps": 1500,
+ "stage2_steps": 15000,
+ "lr1": 0.001,
+ "lr2": 0.0001,
+ "eval_every": 1000
+}

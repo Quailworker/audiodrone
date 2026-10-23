@@ -7,10 +7,73 @@ Acoustic drone detection: a scenario simulator that renders what microphones hea
 - **NEXT_STEPS.md** is the to-do list: what to build next, in order, and how to start it on the desktop.
 - **UPGRADES.md** lists where the best model falls short, ranked, and the planned upgrades.
 - **results/real_world/REAL_TESTS.md** has the tests on public real drone and non-drone recordings, with suggestions to improve the model.
+- **Live demo:** the UAE terrain tool (`terra/`) places mic clusters and drone flights on real UAE terrain in 3D and runs the whole chain. See [Live demo](#live-demo) below.
 - **results/loc_v1/** has the Phase 1 localisation results (direction finding, tracking, tetrahedron vs flat clusters, real IDMT check); `tasks/phase1_localisation_REPORT.md` summarises them.
 - This README covers how to replicate the published dataset, models and results.
 
-Status (design v0.9, models v0.5, 2026-10-23): Phase 1 localisation built and measured in simulation (design.md 13.5, `results/loc_v1/`). The CNN is trained on simulated audio only. It has been tested on public real recordings (detects real drones to ~100 m, but has many false alarms on everyday sounds; see UPGRADES.md). The main real test is the owner's own drone flyover recordings (design.md 14.7). Those are not in this repo and are never used for training.
+Status (2026-10-24): the UAE terrain tool runs the full chain (CNN detection, direction finding, tracking, alerts) on rendered sound over real terrain; model 2 (frequency-tracker input channels, `results/M2_logf_comb/`) trained but is not an upgrade at the standard threshold (fewer false alarms, shorter detection range), so model 1 (`B_logf`) stays the default.
+
+Earlier status (design v0.9, models v0.5, 2026-10-23): Phase 1 localisation built and measured in simulation (design.md 13.5, `results/loc_v1/`). The CNN is trained on simulated audio only. It has been tested on public real recordings (detects real drones to ~100 m, but has many false alarms on everyday sounds; see UPGRADES.md). The main real test is the owner's own drone flyover recordings (design.md 14.7). Those are not in this repo and are never used for training.
+
+## Live demo
+
+The live demo is the **UAE terrain tool**. It runs in your browser:
+1. Pick an area of the UAE.
+2. Place mic clusters, a protected site and a drone flight on the 3D terrain.
+3. Press Run. It renders the sound every mic would hear, then runs the real CNN, direction finding, the tracker and the alerts.
+4. Play it back in 3D: the true drone against the tracked one, clusters lighting up when they hear it, bearings, line of sight (red when a hill blocks it), and the alert feed.
+
+**You need:**
+- Linux or Windows with Python 3.10+.
+- An NVIDIA GPU is recommended. A CPU works, but the CNN step is slower.
+- About 2 GB of disk.
+- Internet for the first setup and for the page's 3D library.
+- Read access to this repo's releases, for the model weights.
+
+**Steps** (from the repo root; on Windows use `.venv\Scripts\python.exe`):
+
+```bash
+bash scripts/setup.sh                                                   # 1. Python env + model weights; ends with "setup OK"
+.venv/bin/pip install -r requirements-alerting.txt -r requirements-terra.txt   # 2. web server (starlette/uvicorn via mcp) + rasterio
+bash scripts/get_dem_uae.sh                                             # 3. UAE elevation tiles, ~870 MB, into data/dem (set DEM_DIR to put them elsewhere)
+.venv/bin/python -m terra.server                                        # 4. start the tool, leave it running
+```
+
+5. Open **http://127.0.0.1:8790** in a browser.
+6. Under **1 Area**, choose an **Example scenario**, then press **Run simulation**. "Over the ridge to a camp on the plain" is a gentle start; "Mountain site in the Hajar" shows hills blocking the sound. The progress log runs under the button, and a run takes about 30–70 s.
+7. When the results band appears at the bottom, press **Focus** (top right), then **Play**. You can change the speed (1×, 4×, 10×) or drag the timeline. The **▶** buttons in the cluster table play what that cluster heard.
+
+**Build your own scenario:**
+1. Choose a preset area, or click the UAE map, then press **Load area**.
+2. Under **2 Place**:
+   - **Square of 5**, then click the ground: places five clusters at the set spacing.
+   - **Site**, then click: places a protected site.
+   - **Flight**, then click two or more waypoints: draws a drone flight. Press **New flight** to draw another.
+3. Set the drone type, height above ground and speed under **3 Drone**, and the ambient sound and temperature under **4 Conditions**.
+4. Press **Run simulation**.
+
+Untick **Model the terrain** to rerun the same layout on flat ground and compare. Runs are saved in `runs_terra/` and reopen from **Previous runs**.
+
+**Check it from the command line** (no browser): with the server running,
+
+```bash
+.venv/bin/python scripts/terra_check.py jais      # or: hafeet; prints the summary and alerts, ends with "terra check OK"
+```
+
+**If something goes wrong:**
+
+| Problem | Fix |
+|---|---|
+| `address already in use` | Another program has port 8790: `python -m terra.server --port 8791` and open that port |
+| "no DEM tiles … for this area" | Step 3 not run, or `DEM_DIR` points elsewhere. Tiles over open sea do not exist; pick a land area |
+| Blank 3D view | The page loads three.js from cdn.jsdelivr.net; check the internet connection and the browser console |
+| Run fails | The error shows in the progress log; the full traceback is in `runs_terra/<id>/error.txt` |
+
+**Quicker text-only demos** (no terrain, no browser):
+- `.venv/bin/python -m alerting.demo --no-llm` plays a scripted tabletop exercise through every alert level.
+- `.venv/bin/python -m alerting.replay --pick 1 --no-llm` replays a simulated localisation scene. It needs the Phase 1 scenes, see section 6.
+
+What the terrain model does and does not include is in [section 8](#8-uae-terrain-tool).
 
 ## Repo layout
 
@@ -38,6 +101,13 @@ Status (design v0.9, models v0.5, 2026-10-23): Phase 1 localisation built and me
 | `loc/track.py` | Extended Kalman filter on cluster directions: emission-time correction, gating, track birth and association |
 | `loc/evaluate.py`, `loc/report.py` | Scoring against ground truth; tables and figures in `results/loc_v1/` |
 | `loc/idmt.py` | Direction finding on the real 8-channel IDMT recordings vs GPS |
+| `terra/dem.py` | UAE terrain: Copernicus DEM tiles to a local metre grid, heights, ground slope, line of sight and knife-edge screening |
+| `terra/scenario.py` | Renders a hand-built scenario on the terrain (cluster heights, sloped-ground echo, hills blocking sound), clusters in parallel |
+| `terra/pipeline.py` | Runs the chain on a rendered scenario: CNN, beamformer, tracker over terrain, alert core; packages the result |
+| `terra/server.py`, `terra/static/` | The web tool (Starlette + three.js), see [Live demo](#live-demo) |
+| `terra/examples/` | Example scenarios shown in the tool |
+| `scripts/get_dem_uae.sh`, `scripts/terra_check.py` | DEM download; command-line check of the tool |
+| `results/M2_logf_comb/` | Model 2 (log-f + whitened spectrum + harmonic-comb channels): training log and evaluations |
 | `tests/` | pytest unit tests for direction finding and tracking |
 | `results/loc_v1/` | Localisation results: `summary.json`, `summary.md`, figures, `idmt/` |
 | `alerting/` | System layer: `rating.py` (D-32), `danger.py` (13.3/13.6.4), `core.py` (fixed-logic alerts), `delivery.py`, `agent.py` (Nemotron), `sitedata.py` + `sitedata_mcp.py` (Zetaris slot), `config.py`, `replay.py`, `demo.py`, `eval_rating.py` |
@@ -183,6 +253,31 @@ ollama pull nemotron-mini                                   # stand-in for Meter
 - **Zetaris:** set `SITE_MCP="<command that starts its MCP server>"`, exposing the tools in `alerting/sitedata_mcp.py`.
 
 `alerting/example_site.json` is a made-up site. Real personnel locations belong in Zetaris and never in git.
+
+## 8. UAE terrain tool
+
+`terra/` is the browser tool behind the [Live demo](#live-demo): pick an area, place mic clusters, protected sites and drone flights in 3D, then run the whole chain on rendered sound and play it back. Setup and use are in the Live demo section.
+
+**What a run does:** renders the sound at every mic on the terrain, then runs the chain:
+
+| Stage | What runs |
+|---|---|
+| Detection | The real CNN (model 1) on each cluster's reference mic |
+| Direction | The beamformer |
+| Tracking | The Kalman tracker, with the terrain as the ground |
+| Alerts | The alert core |
+
+A 2–3 minute flight with 5 clusters takes about 30–70 s. Runs are saved in `runs_terra/<id>/` with the scenario, results, alerts and each cluster's audio.
+
+**Terrain in the sound model** (`terra/scenario.py`):
+- **Heights:** each cluster stands on the DEM ground. Flights either follow the terrain at a set height or fly at a fixed altitude.
+- **Ground echo:** comes from the local ground slope under each cluster.
+- **Screening:** hills and buildings between the drone and a cluster cut the sound by single knife-edge diffraction (ITU-R P.526). The loss depends on frequency and is capped at 25 dB (ISO 9613-2).
+
+**Limits:**
+- Only one diffracting edge is modelled per path, with no multi-ridge losses or reflections off hillsides.
+- Copernicus is a surface model, so buildings count as terrain.
+- Detection uses model 1.
 
 ## Outputs and labels
 

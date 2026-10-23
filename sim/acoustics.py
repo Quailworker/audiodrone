@@ -56,13 +56,19 @@ def air_absorption_db_per_m(f, temp_c=20.0, rh=70.0, pa_kpa=101.325):
         + 0.1068 * np.exp(-3352.0 / T) / (fr_n + f2 / fr_n)))
 
 
-def apply_air_absorption(x, r, fs, temp_c, rh, nfft=1024):
-    """Time-varying absorption: per STFT frame gain 10^(-alpha(f) * r / 20)."""
+def apply_air_absorption(x, r, fs, temp_c, rh, nfft=1024, extra_loss_db=None):
+    """Time-varying absorption: per STFT frame gain 10^(-alpha(f) * r / 20).
+
+    extra_loss_db: optional callable (f, t) -> (len(f), len(t)) further loss in dB at the STFT bin
+    frequencies and frame times (s), applied in the same pass (terrain diffraction, terra/propagation.py)."""
     hop = nfft // 4
     f, t, X = signal.stft(x, fs, nperseg=nfft, noverlap=nfft - hop)
     r_frames = np.interp(t, np.arange(len(r)) / fs, r)
     alpha = air_absorption_db_per_m(f, temp_c, rh)
-    X *= 10 ** (-np.outer(alpha, r_frames) / 20)
+    loss = np.outer(alpha, r_frames)
+    if extra_loss_db is not None:
+        loss = loss + extra_loss_db(f, t)
+    X *= 10 ** (-loss / 20)
     _, y = signal.istft(X, fs, nperseg=nfft, noverlap=nfft - hop)
     return y[: len(x)].astype(np.float32)
 
@@ -97,10 +103,12 @@ def fractional_shift(x, delay_s, fs):
 
 
 def propagate_point_source(src, src_t0, fs, t_ctrl, p_ctrl, mic, n_out, ground_r, temp_c, rh,
-                           directivity=None):
+                           directivity=None, image=None, extra_loss_db=None):
     """Signal at `mic` (pascals) from a moving point source with level-at-1-m signal `src`.
 
     src[n] is the source pressure referred to 1 m at source time src_t0 + n/fs.
+    image: the ground-echo mirror image of the mic; default: mirrored in the plane z = 0 (flat ground).
+    extra_loss_db: see apply_air_absorption (applied to direct sound and echo alike).
     Returns (signal, r_direct sampled at output rate).
     """
     t = np.arange(n_out) / fs
@@ -108,8 +116,8 @@ def propagate_point_source(src, src_t0, fs, t_ctrl, p_ctrl, mic, n_out, ground_r
     t_c = np.arange(0, n_out / fs + 1e-3, 1e-3)
     out = np.zeros(n_out, np.float32)
     r_direct = None
-    for image in (False, True):
-        m = mic * np.array([1, 1, -1]) if image else mic   # image source == mirrored mic
+    for is_image in (False, True):
+        m = (mic * np.array([1, 1, -1]) if image is None else np.asarray(image)) if is_image else mic
         tau_c, r_c = emission_time(t_c, t_ctrl, p_ctrl, m)
         tau = np.interp(t, t_c, tau_c)
         r = np.interp(t, t_c, r_c).astype(np.float32)
@@ -118,9 +126,9 @@ def propagate_point_source(src, src_t0, fs, t_ctrl, p_ctrl, mic, n_out, ground_r
             p = interp_path(t_ctrl, p_ctrl, tau_c)
             el = np.arcsin(np.clip((p[:, 2] - m[2]) / np.maximum(r_c, 1e-3), -1, 1))
             y *= np.interp(t, t_c, directivity(tau_c, el)).astype(np.float32)
-        if image:
+        if is_image:
             out += ground_r * y
         else:
             out += y
             r_direct = r
-    return apply_air_absorption(out, r_direct, fs, temp_c, rh), r_direct
+    return apply_air_absorption(out, r_direct, fs, temp_c, rh, extra_loss_db=extra_loss_db), r_direct

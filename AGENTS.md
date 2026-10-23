@@ -1,8 +1,12 @@
-# AGENTS.md: set up the test environment and check the models
+# AGENTS.md: set up the test environment, check the models and run the live demo
 
 Instructions for a coding agent (or a person) to go from a fresh clone to verified results. Work from the repo root and run every step in order. Each step says what success looks like; stop and report if a step doesn't match.
 
-Background reading, only if you need it: README.md (replication overview) and design.md (5.8 build plan, 5.9 results, 14.6 simulator).
+- Steps 1–5 check the CNN models.
+- Step 6 (optional) replicates training.
+- Step 7 sets up and checks the live demo, the UAE terrain tool.
+
+Background reading, only if you need it: README.md (replication overview and the Live demo section) and design.md (5.8 build plan, 5.9 results, 14.6 simulator, 13.5 localisation, 13.6 alerts).
 
 ## Ground rules
 
@@ -11,6 +15,9 @@ Background reading, only if you need it: README.md (replication overview) and de
 - Run Python with `.venv/bin/python` (`.venv\Scripts\python.exe` on Windows) and modules with `-m` from the repo root, e.g. `python -m cnn.evaluate`.
 - Lint changed code with `ruff check --select E,F,W,B --ignore E501 --exclude 'cnn/panns_*.py' .`
 - Rendering is CPU-heavy. Limit workers on a shared machine (`render_*.sh <workers>`); each worker sets `OMP_NUM_THREADS=1`.
+- `terra/` renders with `multiprocessing` in spawn mode. Any script that calls `terra.pipeline.run` or `terra.scenario.render` must sit under `if __name__ == "__main__":`, or every worker re-runs the script and the run hangs.
+- Don't commit `data/dem/` (elevation tiles) or `runs_terra/` (tool runs, with audio); both are git-ignored.
+- Model 1 (`B_logf_best.pt`) is the default detector everywhere, including the terrain tool. Model 2 (`results/M2_logf_comb/`) is an experiment, not a replacement (see Known issues).
 
 ## Step 1: environment
 
@@ -107,8 +114,68 @@ Then run the three `cnn.train` commands in README.md section 4. While training:
 
 Then evaluate and compare: `python scripts/compare_results.py runs results`. It expects `runs/<run>/eval_<split>.json`, which `cnn.evaluate` writes next to `best.pt`.
 
+## Step 7: the live demo (UAE terrain tool)
+
+This needs Step 1 (environment and model weights). A GPU is recommended; on a CPU the CNN step of each run is slower.
+
+```bash
+.venv/bin/pip install -r requirements-alerting.txt -r requirements-terra.txt
+bash scripts/get_dem_uae.sh            # ~870 MB into data/dem; set DEM_DIR=/elsewhere to store them elsewhere
+.venv/bin/python -m pytest -q tests/test_terra.py
+```
+
+Success:
+- `get_dem_uae.sh` prints `ok` for 28 tiles per resolution. The two all-sea tiles print `404` and are skipped; that is expected;
+- `5 passed`. The Jebel Hafeet test is skipped, not failed, if the tiles are missing.
+
+Start the server and leave it running (in the background, or in a second terminal):
+
+```bash
+.venv/bin/python -m terra.server       # serves http://127.0.0.1:8790 ; --port to change
+```
+
+Then, in another shell:
+
+```bash
+curl -s http://127.0.0.1:8790/api/examples | head -c 200; echo
+.venv/bin/python scripts/terra_check.py hafeet
+.venv/bin/python scripts/terra_check.py jais
+```
+
+Success:
+- `/api/examples` returns JSON listing `hafeet` and `jais`.
+- Each check prints its progress (rendering per cluster, CNN, direction finding, tracking and alerts), a summary and an alert list, then `terra check OK (<seconds> s)`.
+- A run takes about 30–70 s on a GPU machine with 6+ cores.
+- The runs are seeded, so on the reference machine the numbers are:
+
+| | `hafeet` | `jais` |
+|---|---|---|
+| `first_take_cover_s` | 156.25 | 122.65 |
+| `drone_enters_site_s` | 172.0 | 129.6 |
+| `warning_s` | 15.8 | 6.9 |
+| Terrain blocking | C5 blocked about 11% of the time | 58–82% per cluster |
+
+Small differences from GPU arithmetic are fine. A missing take-cover alert, or no tracks at all, is not.
+
+To show it to a person: open http://127.0.0.1:8790, choose an **Example scenario**, press **Run simulation**, then **Focus** and **Play** (README, Live demo).
+
+If it fails:
+
+| Problem | Fix |
+|---|---|
+| `address already in use` | Port 8790 is taken: start with `--port 8791` and pass `--url http://127.0.0.1:8791` to `terra_check.py` |
+| `no DEM tiles in … for this area` | `get_dem_uae.sh` not run, or `DEM_DIR` differs between the download and the server |
+| Run status `error` | Read `runs_terra/<id>/error.txt` for the traceback |
+| The run never finishes and many `spawn_main` processes keep restarting | A driver script without the `__main__` guard (Ground rules); stop it and add the guard |
+
 ## Known issues (design.md 5.9.4)
 
 - Electric drones are only detected about 76 % of the time at 0–25 m in sim. This is probably the metric counting ignored or masked frames; under investigation.
 - `drone_engine` fires on ground two-strokes (chainsaws, blowers): about 28 false alarms per hour on drone-free scenes (design D-28, open). For "any engine", use max(drone_engine, ground_engine).
 - Real recordings (results/real_world/REAL_TESTS.md): real drones are detected out to ~100 m, but everyday non-drone sounds (voices, animals, horns, sirens) trigger the electric head on ~80 % of clips. Expect false alarms in the field. See UPGRADES.md for the planned fixes.
+- Model 2 (frequency-tracker input channels, `results/M2_logf_comb/`): at the standard 0.5 threshold it has fewer false alarms than model 1 (`drone_engine` 10 vs 28 per hour on `test_sim`), but it also detects less at every range (2–10 points lower). The overall F1 is about the same. It has not been compared at a matched false-alarm rate yet, so model 1 stays the default.
+- Terrain tool limits:
+  - Only single knife-edge screening is modelled, with no multi-ridge loss or reflections off hillsides.
+  - Copernicus is a surface model, so buildings count as terrain.
+  - Flat clusters give compass bearings (median 4–30° error per cluster in the examples) but poor elevation (about 45° estimated against 15° true). The tool therefore draws bearings level.
+  - With clusters 100–300 m apart, a drone more than about 500 m out often gets several short tracks and late or wrong "over it now" alerts.

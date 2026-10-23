@@ -1,0 +1,67 @@
+{
+ "origin": [
+  25.95,
+  56.13
+ ],
+ "half_m": 2000,
+ "area_name": "Jebel Jais, Ras Al Khaimah",
+ "terrain": true,
+ "mount": "ground",
+ "clusters": [
+  [
+   270,
+   -430
+  ],
+  [
+   570,
+   -430
+  ],
+  [
+   570,
+   -130
+  ],
+  [
+   270,
+   -130
+  ],
+  [
+   420,
+   -280
+  ]
+ ],
+ "sites": [
+  {
+   "name": "Site 1",
+   "x": 420,
+   "y": -280,
+   "radius_m": 60
+  }
+ ],
+ "drones": [
+  {
+   "cls": "mid",
+   "agl": 60,
+   "speed": 15,
+   "alt_mode": "agl",
+   "waypoints": [
+    [
+     -1247,
+     832
+    ],
+    [
+     420,
+     -280
+    ],
+    [
+     1397,
+     -978
+    ]
+   ]
+  }
+ ],
+ "ambient": "desert",
+ "temp_c": 35,
+ "rh": 30,
+ "seed": 1,
+ "title": "Mountain site in the Hajar (Jebel Jais), 300 m square"
+}
