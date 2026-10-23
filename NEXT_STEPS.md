@@ -16,7 +16,16 @@ Run it in a permission mode that doesn't stop for every approval (auto or accept
 
 Remote start from the laptop needs SSH over Tailscale, and the desktop uses Tailscale SSH **check mode**: each connection must be approved in a browser (login.tailscale.com) before it works.
 
-## 1. Phase 1: localisation in simulation (do first)
+## 1. Phase 1: localisation in simulation: **done** (design v0.9)
+
+**Done 2026-10-23.** Results: design.md 13.5, `results/loc_v1/`, `tasks/phase1_localisation_REPORT.md`.
+- Tetrahedra beat flat clusters.
+- The ground echo needs a reflection-aware beamformer.
+- Steering on the drone's comb lines is the biggest gain (2–5×).
+- Real azimuth accuracy is about 8.5°.
+- Doppler (step 3b) is not built yet.
+
+Original plan, kept for reference:
 
 **Instructions:** [`tasks/phase1_localisation.md`](tasks/phase1_localisation.md)
 

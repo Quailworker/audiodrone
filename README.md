@@ -2,14 +2,15 @@
 
 Acoustic drone detection: a scenario simulator that renders what microphones hear while drones (and things that sound like them) fly past, and a CNN that detects drones in that audio frame by frame (10 ms frames).
 
-- **design.md** is the full design: theory, maths, decisions (D-01 to D-37), results (section 5.9).
+- **design.md** is the full design: theory, maths, decisions (D-01 to D-37), results (sections 5.9, 13.5).
 - **AGENTS.md** is a step-by-step checklist for setting up the test environment and checking the published models.
 - **NEXT_STEPS.md** is the to-do list: what to build next, in order, and how to start it on the desktop.
 - **UPGRADES.md** lists where the best model falls short, ranked, and the planned upgrades.
 - **results/real_world/REAL_TESTS.md** has the tests on public real drone and non-drone recordings, with suggestions to improve the model.
+- **results/loc_v1/** has the Phase 1 localisation results (direction finding, tracking, tetrahedron vs flat clusters, real IDMT check); `tasks/phase1_localisation_REPORT.md` summarises them.
 - This README covers how to replicate the published dataset, models and results.
 
-Status (v0.5, 2026-10-23): trained on simulated audio only. It has been tested on public real recordings (detects real drones to ~100 m, but has many false alarms on everyday sounds; see UPGRADES.md). The main real test is the owner's own drone flyover recordings (design.md 14.7). Those are not in this repo and are never used for training.
+Status (design v0.9, models v0.5, 2026-10-23): Phase 1 localisation built and measured in simulation (design.md 13.5, `results/loc_v1/`). The CNN is trained on simulated audio only. It has been tested on public real recordings (detects real drones to ~100 m, but has many false alarms on everyday sounds; see UPGRADES.md). The main real test is the owner's own drone flyover recordings (design.md 14.7). Those are not in this repo and are never used for training.
 
 ## Repo layout
 
@@ -30,6 +31,15 @@ Status (v0.5, 2026-10-23): trained on simulated audio only. It has been tested o
 | `results/<run>/` | Reference results per model: `args.json`, `log.jsonl` (val metrics every 1,000 steps), `train.out`, `eval_test_sim.json`, `eval_test_heldout.json` |
 | `analysis/` | Failure analysis (design.md 5.10): per-frame tables, slices, robustness, sweeps, real-recording tests, figures |
 | `results/real_world/` | Real-recording results: summary (`REAL_TESTS.md`), figures, per-clip and per-range CSVs |
+| `sim/layouts.py` | Mic cluster geometries (tetrahedron, flat) and field layouts (5 clusters on a 100 m or 150 m square, 3 in a line) |
+| `loc/render.py` | Multi-cluster localisation scenes: 4-channel 8 kHz FLAC per cluster, ground-truth tracks and per-cluster audibility |
+| `loc/doa.py` | Direction finding per cluster: pairwise SRP-PHAT-β, pair-delay least squares, reflection-aware beamformer (torch) |
+| `loc/run_doa.py` | Runs direction finding (and the experiment variants) on every rendered scene |
+| `loc/track.py` | Extended Kalman filter on cluster directions: emission-time correction, gating, track birth and association |
+| `loc/evaluate.py`, `loc/report.py` | Scoring against ground truth; tables and figures in `results/loc_v1/` |
+| `loc/idmt.py` | Direction finding on the real 8-channel IDMT recordings vs GPS |
+| `tests/` | pytest unit tests for direction finding and tracking |
+| `results/loc_v1/` | Localisation results: `summary.json`, `summary.md`, figures, `idmt/` |
 | `results/sim_v1_manifest.csv` | One row per scene (length, level, sources, label counts) to check a re-render |
 
 Not in git (see `.gitignore`): `data/` (rendered scenes, 26 GB), `weights/` (CNN14 checkpoint), `models/` and `runs/` (trained weights).
@@ -128,6 +138,25 @@ Any sample rate is accepted; the audio is resampled to 32 kHz. The script writes
 - `recording.detections.png`: the spectrogram with each class's probability over time.
 
 The level of real audio is not calibrated. That's fine, because training randomised gain by −25 to +15 dB.
+
+## 6. Localisation (Phase 1)
+
+Multi-cluster scenes use the same random scenes as `sim_v1` (same physics, new seeds from 20,000,000, only seeds whose scene has a drone), heard by every mic of a field layout. The same seeds are used for every configuration, so configurations are compared on identical flights. Rendering with the default single mic is unchanged (checked bit-for-bit against `sim_v1`).
+
+```bash
+.venv/bin/python -m pytest -q tests/                       # direction finding and tracker unit tests
+bash scripts/render_loc.sh tetra_pole_100 8                # 300 scenes (~7 GB, ~175 CPU-s each), then direction finding
+bash scripts/render_loc.sh flat_ground_100 8
+bash scripts/render_loc.sh tetra_ground_100 8              # optional
+bash scripts/render_loc.sh tetra_pole_150 8                # optional
+.venv/bin/python -m loc.run_doa --config tetra_pole_100 --comb --limit 100     # oracle comb-guided experiment
+.venv/bin/python -m loc.run_doa --config flat_ground_100 --comb --limit 100
+.venv/bin/python -m loc.evaluate --configs tetra_pole_100 flat_ground_100 tetra_ground_100 tetra_pole_150
+.venv/bin/python -m loc.idmt                               # needs data/real/idmt (Zenodo 17525811)
+.venv/bin/python -m loc.report
+```
+
+Direction finding needs a GPU for speed (about 4 s per scene on an RTX 3080, main methods only); it runs on the CPU too.
 
 ## Outputs and labels
 
