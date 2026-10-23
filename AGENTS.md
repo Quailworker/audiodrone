@@ -6,6 +6,8 @@ Instructions for a coding agent (or a person) to go from a fresh clone to verifi
 - Step 6 (optional) replicates training.
 - Step 7 sets up and checks the live demo, the UAE terrain tool.
 
+**Start with ARCHITECTURE.md** for the map of the system: every stage, the code it lives in, the data passed between stages, the machines, and how each part was built.
+
 Background reading, only if you need it: README.md (replication overview and the Live demo section) and design.md (5.8 build plan, 5.9 results, 14.6 simulator, 13.5 localisation, 13.6 alerts).
 
 ## Ground rules
