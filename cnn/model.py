@@ -1,8 +1,9 @@
 """CNN14 (NeMo/PANNs Cnn14_DecisionLevelMax) with a swappable front end and a drone head.
 
 Front ends (design.md 5.8.4):
-  "mel"  - stock log-mel, n_fft 1024 (option A, baseline)
-  "logf" - mel bent at 50 Hz (log-spaced over the whole drone range), n_fft 4096 (option B)
+  "mel"       - stock log-mel, n_fft 1024 (option A, baseline)
+  "logf"      - mel bent at 50 Hz (log-spaced over the whole drone range), n_fft 4096 (option B, model 1)
+  "logf_comb" - "logf" plus two frequency-tracker channels: whitened spectrum and harmonic-comb score (model 2)
 """
 import numpy as np
 import torch
@@ -39,6 +40,81 @@ def bent_mel_filters(n_fft, sr=SR, n_mels=N_MELS, fmin=FMIN, fmax=FMAX, bend_hz=
     return W
 
 
+# Frequency-tracker channels (design.md 5.2): candidate shaft rates, one per row of the 64-row input.
+COMB_F0 = np.geomspace(20.0, 2000.0, N_MELS)
+COMB_FMAX, COMB_KMAX, COMB_KMIN, COMB_TOOTH, FLOOR_HZ, SOFT_P = 6000.0, 30, 4, 0.02, 480.0, 4.0
+
+
+def comb_matrices(n_fft=4096, sr=SR):
+    """T (n_fft//2+1, n_teeth): each column averages the FFT bins within +-max(half a bin, 2 % of the centre) of
+    harmonic k of one candidate f0 (wider at high k, since rotors differ by a few %), or of the gap (k - 1/2) f0
+    between harmonics; G (n_teeth, N_MELS) gives each candidate mean(teeth) - mean(gaps).
+
+    The gaps fix both octave errors: at f0/2 half the teeth land in the true gaps, and at 2 f0 the gaps land on the
+    true odd harmonics. Means are over at least COMB_KMIN harmonics so a single loud tone cannot win on its own.
+    Harmonics run to COMB_FMAX or COMB_KMAX, whichever comes first."""
+    freqs = np.arange(n_fft // 2 + 1) * sr / n_fft
+    df = sr / n_fft
+    cols, rows = [], []
+    for j, f0 in enumerate(COMB_F0):
+        ks = [k for k in range(1, COMB_KMAX + 1) if k * f0 <= COMB_FMAX]
+        w = 1.0 / max(len(ks), COMB_KMIN)
+        for k in ks:
+            for fc, sign in ((k * f0, 1.0), ((k - 0.5) * f0, -1.0)):
+                sel = np.abs(freqs - fc) <= max(0.5 * df, COMB_TOOTH * fc)
+                cols.append(sel / sel.sum())
+                rows.append((j, sign * w))
+    G = np.zeros((len(rows), N_MELS), np.float32)
+    for i, (j, w) in enumerate(rows):
+        G[i, j] = w
+    return np.stack(cols, 1).astype(np.float32), G
+
+
+class CombFeatures(nn.Module):
+    """Power spectrogram (B, 1, T, F) -> (B, 2, T, 64), fixed (no parameters).
+
+    white = dB above a running 480 Hz mean of the log spectrum, clipped to [0, 40] and scaled to [0, 1], so tones
+    stand out and the broadband floor (wind, road) is gone.
+      ch 0: white per log-f band, as a power mean (p = 4) so one tone in a wide band still shows
+      ch 1: comb score for 64 candidate rates 20-2000 Hz (shaft or blade-pass): mean over harmonics of each
+            tooth's power mean, minus the same between harmonics (comb_matrices). Evenly spaced lines light up
+            their f0 row; scattered tones and broadband noise do not.
+    """
+
+    def __init__(self, melW, n_fft=4096):
+        super().__init__()
+        W = torch.as_tensor(melW, dtype=torch.float32)
+        T, G = comb_matrices(n_fft)
+        self.register_buffer("W", W / W.sum(0, keepdim=True).clamp(min=1e-8), persistent=False)
+        self.register_buffer("T", torch.from_numpy(T), persistent=False)
+        self.register_buffer("G", torch.from_numpy(G), persistent=False)
+        self.k = round(FLOOR_HZ / (SR / n_fft)) | 1
+
+    def forward(self, power):
+        with torch.autocast(power.device.type, enabled=False):
+            logS = 10 * torch.log10(power.float().clamp(min=1e-10))
+            b, _, t, nf = logS.shape
+            floor = F.avg_pool1d(logS.reshape(b * t, 1, nf), self.k, 1, self.k // 2, count_include_pad=False)
+            white = ((logS - floor.reshape(logS.shape)).clamp(0, 40) / 40) ** SOFT_P
+            band = (white @ self.W).clamp(min=0) ** (1 / SOFT_P)
+            comb = ((white @ self.T).clamp(min=0) ** (1 / SOFT_P)) @ self.G
+        return torch.cat([band, comb], 1)
+
+
+class ExtraInputConv(nn.Module):
+    """A pretrained 1-channel conv plus a zero-initialised conv over extra channels, so the model starts out
+    exactly as the pretrained one and learns how much to use the new channels."""
+
+    def __init__(self, conv, n_extra):
+        super().__init__()
+        self.conv = conv
+        self.extra = nn.Conv2d(n_extra, conv.out_channels, conv.kernel_size, padding=conv.padding, bias=False)
+        nn.init.zeros_(self.extra.weight)
+
+    def forward(self, x):
+        return self.conv(x[:, :1]) + self.extra(x[:, 1:])
+
+
 def make_frontend(frontend):
     """(Spectrogram, LogmelFilterBank) for "mel" (CNN14's stock, n_fft 1024) or "logf" (bent mel, n_fft 4096).
 
@@ -62,12 +138,19 @@ class DroneCNN14(nn.Module):
         base = Cnn14_DecisionLevelMax(SR, 1024, HOP, N_MELS, FMIN, FMAX, 527)
         if checkpoint:
             base.load_state_dict(torch.load(checkpoint, map_location="cpu", weights_only=False)["model"])
-        if frontend == "logf":
-            base.spectrogram_extractor, base.logmel_extractor = make_frontend(frontend)
+        if frontend in ("logf", "logf_comb"):
+            base.spectrogram_extractor, base.logmel_extractor = make_frontend("logf")
             init_bn(base.bn0)                      # bands now cover different frequencies: relearn
             base.bn0.reset_running_stats()
         elif frontend != "mel":
             raise ValueError(frontend)
+        self.comb = None
+        if frontend == "logf_comb":
+            self.comb = CombFeatures(base.logmel_extractor.melW.data.clone())
+            self.bn_extra = nn.ModuleList([nn.BatchNorm2d(N_MELS) for _ in range(2)])
+            for bn in self.bn_extra:
+                init_bn(bn)
+            base.conv_block1.conv1 = ExtraInputConv(base.conv_block1.conv1, 2)
         base.fc_audioset = nn.Linear(2048, n_classes)
         init_layer(base.fc_audioset)
         self.base, self.frontend = base, frontend
@@ -78,19 +161,26 @@ class DroneCNN14(nn.Module):
 
     def head_parameters(self):
         b = self.base
-        return [*b.bn0.parameters(), *b.fc1.parameters(), *b.fc_audioset.parameters()]
+        extra = [*self.bn_extra.parameters(), *b.conv_block1.conv1.extra.parameters()] if self.comb else []
+        return [*b.bn0.parameters(), *b.fc1.parameters(), *b.fc_audioset.parameters(), *extra]
 
     def features(self, wave):
+        """(B, C, T, 64) normalised input: the log-f bands, plus the two comb channels for "logf_comb"."""
         b = self.base
-        x = b.logmel_extractor(b.spectrogram_extractor(wave))   # (B, 1, T, 64)
-        return x
+        power = b.spectrogram_extractor(wave)
+        x = b.logmel_extractor(power)                            # (B, 1, T, 64)
+        x = b.bn0(x.transpose(1, 3)).transpose(1, 3)
+        if self.comb is None:
+            return x
+        e = self.comb(power)
+        e = [bn(e[:, i:i + 1].transpose(1, 3)).transpose(1, 3) for i, bn in enumerate(self.bn_extra)]
+        return torch.cat([x, *e], 1)
 
     def forward(self, wave):
         """wave (B, n) at 32 kHz -> frame logits (B, T, n_classes) at 100 frames/s."""
         b = self.base
         x = self.features(wave)
         frames = x.shape[2]
-        x = b.bn0(x.transpose(1, 3)).transpose(1, 3)
         if self.training:
             x = b.spec_augmenter(x)
         for i, block in enumerate([b.conv_block1, b.conv_block2, b.conv_block3,
