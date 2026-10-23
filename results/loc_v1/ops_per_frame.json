@@ -1,0 +1,30 @@
+{
+ "8000 Hz": {
+  "nfft": 4096,
+  "n_bins": 389,
+  "n_grid": 9540,
+  "n_fine": 289,
+  "fft": 491520,
+  "cross_spectra": 18672,
+  "gcc_ifft": 737280,
+  "ls": 1248012,
+  "srp_coarse_only": 1419192,
+  "srp": 1424394,
+  "srp_exact_steering": 92273736,
+  "bf": 61671884
+ },
+ "4000 Hz": {
+  "nfft": 2048,
+  "n_bins": 389,
+  "n_grid": 9540,
+  "n_fine": 289,
+  "fft": 225280,
+  "cross_spectra": 18672,
+  "gcc_ifft": 337920,
+  "ls": 582412,
+  "srp_coarse_only": 753592,
+  "srp": 758794,
+  "srp_exact_steering": 92007496,
+  "bf": 61405644
+ }
+}

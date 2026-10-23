@@ -1,6 +1,7 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.8.1, 2026-10-23.
+- **Status:** draft v0.9, 2026-10-23.
+  - v0.9 adds the **Phase 1 localisation results** (13.5): multi-cluster rendering, direction finding (incl. a new reflection-aware beamformer), the EKF tracker and their measured accuracy for tetrahedra vs flat clusters, pole vs ground and 100 vs 150 m spacing, plus the first real direction-finding check on the IDMT array recordings. Main findings: the ground echo breaks pairwise direction finding on tetrahedra (fixed by modelling it); the 100–860 Hz band is often masked, and steering on the drone's own comb lines up to 2 kHz cuts direction errors 2–5×; tetrahedra beat flat clusters; real azimuth accuracy is ~8.5° median, several times worse than assumed (F4).
   - v0.8.1 replaces the Raspberry Pi cluster computer with an **ESP32-S3** that sends packets (Joseph), D-37, section 9.6. Revises D-10: direction finding may run on the server when raw multichannel audio is sent. (Numbered v0.8.1 because v0.9 is reserved for the Phase 1 localisation results.)
   - v0.8 adds the alerting side (Joseph's idea: Nemotron as the brain for people, alerting nearby soldiers and civilians and predicting the danger area for early evacuation). Decisions D-34 (Nemotron as the communication layer; fixed-logic alarm path), D-35 (danger-zone prediction and tiered alerts, 13.3–13.4) and D-36 (tripwire clusters for warning time, 8.4).
   - v0.7 records Joseph's decisions: **all drones count** (D-18), **no real negatives in training** so the detector stays sensitive (D-25, open question 21), **alert on every engine and rate it** (D-28). Adds the drone-likelihood rating stage (D-32, section 5.12) and recall-first tuning (D-33). UPGRADES.md re-prioritised.
@@ -106,14 +107,14 @@ SERVER                                                     [J] server + CNN
 | D-04 | Identify drone **type** with the CNN | [J] | open | D-02 | Adopted, revised by D-05 |
 | D-05 | Type must not rely on frequency alone; use whine/BPF ratio, rotor count, harmonic shape; needs real recordings | [C revises J] | derived | D-04 | Proposed |
 | D-06 | Microphones grouped in **clusters**, spread over the area | [J] | — | — | Adopted |
-| D-07 | Each cluster is a **4-mic regular tetrahedron** (originally 3 mics) | [J←C] | derived | D-06 | **Under review (D-30)** |
-| D-08 | Tetrahedron edge **20 cm**; direction finding uses frequencies **< 860 Hz** | [C] | derived | D-07 | Proposed |
+| D-07 | Each cluster is a **4-mic regular tetrahedron** (originally 3 mics) | [J←C] | derived; simulated v0.9 | D-06 | **Under review (D-30).** Evidence v0.9 (13.5.4): tetrahedra beat flat clusters (direction 4.9–6.5° vs 12°, height 4.4–5.5 m vs 12.6 m, near-horizon elevation 3° vs 20°); needs the reflection-aware beamformer |
+| D-08 | Tetrahedron edge **20 cm**; direction finding uses frequencies **< 860 Hz** | [C] | derived; simulated v0.9 | D-07 | Proposed. Evidence v0.9 (13.5.2): 100–2000 Hz beats 100–860 Hz despite aliasing (masking matters more); 4 kHz audio is enough for < 860 Hz |
 | D-09 | Cluster ranges must **overlap substantially** (spacing ≈ range), not slightly | [C revises J] | derived | D-06 | Proposed |
-| D-10 | **Direction finding runs on the cluster**; server receives directions, not only spectrograms | [C revises J] | derived | D-06, D-07 | Proposed. **v0.8.1:** revised by D-37: in mode A (raw 4-channel audio streamed, phase kept) direction finding runs on the server; in mode B it can run on the ESP32 |
+| D-10 | **Direction finding runs on the cluster**; server receives directions, not only spectrograms | [C revises J] | derived | D-06, D-07 | Proposed. **v0.8.1:** revised by D-37: in mode A (raw 4-channel audio streamed, phase kept) direction finding runs on the server; in mode B it can run on the ESP32. Evidence v0.9 (13.5.4): the pairwise methods that fit an ESP32 (~13 M multiply-adds/s) are the ones the ground echo breaks on tetrahedra; the reflection-aware beamformer (~620 M/s) needs the server, so mode A fits tetrahedra better |
 | D-11 | Use a **time-frequency functional** to get one frequency's amplitude and exact frequency over time | [J] | simulated | D-01 | Adopted |
-| D-12 | Use a **Kalman filter** (EKF) to estimate and predict position, height and velocity | [J] | simulated | D-07, D-10 | **Adopted** |
+| D-12 | Use a **Kalman filter** (EKF) to estimate and predict position, height and velocity | [J] | simulated; v0.9 scenario sim | D-07, D-10 | **Adopted.** v0.9: built with emission-time correction, gating, birth and association (`loc/track.py`); directions only (no Doppler yet) give ~4 m/s velocity error (13.5.3) |
 | D-13 | Kalman state includes the drone's pitch f₀, with **fast-changing f₀** allowed | [C] | simulated | D-12 | Proposed |
-| D-14 | Height comes from **3D triangulation of tetrahedral directions inside the Kalman filter** | [J] + [C] | simulated | D-07, D-12 | **Adopted** |
+| D-14 | Height comes from **3D triangulation of tetrahedral directions inside the Kalman filter** | [J] + [C] | simulated; v0.9 scenario sim | D-07, D-12 | **Adopted.** Evidence v0.9: median height error 2.7 m within 25 m of a cluster, ~4–8 m further out; 3.2 m overall with comb-guided directions (13.5.3) |
 | D-15 | Towards/away is decided from the **tracked position**, with the frequency gradient as a supporting cue | [J] triangulation; [C revises J] | derived | D-11, D-12 | Proposed |
 | D-16 | Velocity from **Doppler at several clusters at once** (inside the Kalman filter) | [C] | simulated | D-12 | Proposed |
 | D-17 | Train with **simulated drone audio**, test on real recordings | [J] simulate; [C] split | simulated | D-02 | Adopted; detailed by D-25 |
@@ -129,7 +130,7 @@ SERVER                                                     [J] server + CNN
 | D-27 | Drone classes: **5–7" FPV, 7–12" electric, ~10"+ two-stroke petrol** | [J]; sound models [C] | estimate | D-18 | **Adopted** |
 | D-28 | Handling two-stroke drones vs ground engines: proposed 3 outputs, electric drone / engine / nothing | [C] proposal; [J] resolution | — | D-26, D-27 | **Resolved (v0.7):** alert on **every** engine sound; the D-32 rating marks low, slow engines as probably ground engines (chainsaw, mower) [J] |
 | D-29 | Data comes from a **scenario simulator**: mics at fixed positions, sources flying trajectories, propagation physics per mic, long clips covering whole passes | [J] idea; [C] physics | derived; not validated | D-17, D-24 | **Adopted** |
-| D-30 | Mic clusters **flat, on the ground surface**; height from overlapping clusters + Doppler in the EKF (instead of a tetrahedron) | [J] idea; [C] analysis | derived; to be simulated | D-07, D-09, D-12, D-14 | Proposed |
+| D-30 | Mic clusters **flat, on the ground surface**; height from overlapping clusters + Doppler in the EKF (instead of a tetrahedron) | [J] idea; [C] analysis | derived; simulated v0.9 | D-07, D-09, D-12, D-14 | Proposed. Evidence v0.9 (13.5.4): worse than tetrahedra; viable only with comb-guided direction finding (height 4.8 vs 3.2 m) and without the single-cluster height clue |
 | D-31 | Field test protocol: drone passes at several distances with a flight log, plus no-drone and confuser recordings | [J] test; [C] protocol | — | D-25 | Proposed |
 | D-32 | **Drone-likelihood rating** after the CNN: every alert is scored from CNN probability × height × speed × persistence; **low and slow → probably not a drone** | [J] rule; [C] factors and thresholds | open: thresholds to tune | D-12, D-14, D-28, D-07/D-30 | **Adopted** (5.12) |
 | D-33 | Detector tuned for **recall**: drone thresholds near 0.5; release gate on recall (all Svanström drone clips detected, IDMT ≤ 50 m ≥ 95 %); false-alarm rate reported but not a gate | [J] intent; [C] numbers | — | D-25, D-32 | **Adopted** (5.12) |
@@ -1474,6 +1475,114 @@ The first alert is sent by the core, not through these tools.
 
 **Dependency:** the take-cover and evacuate tiers need position and velocity (D-12, D-14) and the rating (D-32). Until localisation works, only the advisory tier is meaningful.
 
+### 13.5 Localisation results (v0.9) [C]
+
+Phase 1 (`tasks/phase1_localisation.md`) built the localisation half in the scenario simulator and measured it. Code: `sim/layouts.py`, `loc/` (render, direction finding, tracker, scoring, IDMT check), `tests/`. Results: `results/loc_v1/` (`summary.json`, figures, `idmt/`). Everything is *(simulated)* unless marked *(real)*.
+
+#### 13.5.1 Setup
+
+| Item | Value |
+|---|---|
+| Scenes | 300 drone scenes per configuration; the same seeds in every configuration (identical flights, confusers, backgrounds, weather), so configurations are compared pairwise |
+| Field | 5 clusters: corners of a 100 m (or 150 m) square plus the centre |
+| Clusters | **tetra:** regular tetrahedron, 20 cm edge (D-07, D-08). **flat:** the same base triangle plus a centre mic, all at one height (D-30) |
+| Mounting | **pole:** base 2.0 m above the ground. **ground:** 0.03 m |
+| Configurations | `tetra_pole_100`, `flat_ground_100`, `tetra_ground_100`, `tetra_pole_150` |
+| Frames | 0.4 s Hann windows every 0.1 s (10 Hz, the EKF rate), 8 kHz audio |
+| Scored frames | Only where the drone is audible at that cluster by the CNN label rule (5.8.6). Direction statistics use the 209 single-drone scenes (205 for the pole configurations) |
+| Tracking | "Oracle detection": a cluster contributes a direction when the drone is audible there and the direction passes a coherence gate. This separates localisation errors from detection errors |
+| Experiments | On 100 scenes: PHAT-β 0/0.5/1, band 100–2000 Hz, 4 kHz audio. On 60–100 scenes: **oracle comb**, i.e. direction finding restricted to the drone's own harmonic lines (true rotor rates, Doppler-shifted per cluster), an upper bound for comb-tracker-guided direction finding |
+
+**Direction finders** (`loc/doa.py`):
+
+| Method | What it does | Cost per frame |
+|---|---|---|
+| `srp` | SRP-PHAT-β over the 6 mic pairs, 2° grid then 0.25° refinement | ~1.4 M multiply-adds (GCC via IFFT + lookup) |
+| `ls` | Least squares on the 6 pair delays (GCC peaks) | ~1.3 M |
+| `bf` | **Reflection-aware beamformer** (new): the steering vector includes the ground echo, `a_i = e^{jk(x_i u_x + y_i u_y)} (e^{jk z_i u_z} + R e^{−jk z_i u_z})`, R = 0.75 assumed | ~62 M |
+
+The reflection-aware beamformer was added because the ground echo broke the pairwise methods (13.5.2, finding 1).
+
+#### 13.5.2 Direction accuracy (F4)
+
+Median error and gross errors (> 10°), audible frames that pass the coherence gate:
+
+| Configuration | `srp` | `ls` | `bf` | `bf` near horizon (el < 15°): median \|elevation error\| |
+|---|---|---|---|---|
+| Tetrahedron, 2 m pole | 15.4°, 66 % | 17.6°, 70 % | **6.5°, 43 %** | 3.0° |
+| Tetrahedron, on the ground | 15.4°, 67 % | 17.8°, 72 % | **4.9°, 31 %** | 2.9° |
+| Flat, on the ground | 12.2°, 56 % | 11.8°, 55 % | 12.0°, 56 % | **20.0°** |
+| Tetrahedron, pole, 150 m field | 15.7°, 67 % | 17.7°, 71 % | **6.8°, 44 %** | 3.2° |
+
+**Oracle comb experiment**, same frames for every method:
+
+| Configuration (scenes) | `bf`, 100–860 Hz | `bf`, 100–2000 Hz | comb lines, 100–860 Hz | **comb lines, 100–2000 Hz** |
+|---|---|---|---|---|
+| Tetrahedron, pole (36) | 6.1°, 43 % | 2.5°, 32 % | 1.8°, 16 % | **1.4°, 11 %** |
+| Flat, ground (65) | 13.4°, 60 % | 5.7°, 33 % | 3.9°, 24 % | **2.5°, 10 %** |
+
+**Findings**
+1. **The ground echo breaks pairwise direction finding on tetrahedra.** On a 2 m pole, the echo of a tone arrives at the same frequency from the mirror direction and biases the pair delays: 3–15° error in a noise-free test, and a −2.4° elevation bias in the scenes. On the ground, the echo cancels the vertical phase at the top mic (the pressure field is nearly even in z), so the tetrahedron's elevation advantage is lost to pairwise methods (10–40° noise-free). The reflection-aware beamformer restores it: 0.1–2° noise-free, 4.9–6.5° in the scenes. Flat ground clusters are immune (the echo is common to all mics), so there `bf` = `srp`.
+2. **The direction-finding band is often masked.** The drone can be audible to the CNN (which relies on > 1 kHz, 5.11.2) while 100–860 Hz is dominated by vehicles, engines, aircraft or wind. In 37–44 % of audible frames the drone is below the rest of the sound in 100–860 Hz. Error vs the drone's in-band SNR (pole, `bf`): 1.7° above +10 dB, 4.7° at +5 to +10 dB, 9.6° at 0 to +5 dB, 14° at −5 to 0 dB, 27° at −10 to −5 dB, 81° (random) below −10 dB.
+3. **Steering on the drone's own lines is the biggest gain.** With the comb lines up to 2 kHz: 1.4° (tetrahedron) and 2.5° (flat) median, gross errors 10–11 %, every drone class 1.0–2.7°. FPV is the worst class with the whole band (29° median on the pole, all scenes), because its BPF lies above 860 Hz. In the real system, the lines come from the comb tracker (D-11, section 6), so it should feed the direction finder.
+4. **Aliasing above 860 Hz does less harm than the masking it avoids.** On the same frames, 100–2000 Hz beats 100–860 Hz for every method: pole `bf` 9.0° → 3.9°, pole `srp` 18.3° → 7.8°, flat 13.4° → 5.7°. D-08's band limit is too conservative in practice; the full sphere search sorts out most aliases.
+5. **4 kHz audio gives identical directions to 8 kHz** (to 0.1°). Mode A can send direction-finding channels at 4 kHz; the 2 kHz band needs ~5 kHz to leave room for the anti-alias filter.
+6. **PHAT weighting:** β = 0.5 is the best compromise. Full PHAT (β = 1) loses tones in noise bins (synthetic comb: 4–5° vs < 0.1°). No whitening (β = 0) is better when a broadband interferer competes with a tonal drone (flat `srp`: 8.1° vs 13.4°) but worse on the pole (21.4° vs 18.3°); β = 1 is worse on both (21.5°, 15.4°).
+7. **Distance:** `bf` median 3.8° at 25–50 m, 4.9° at 50–100 m, 6.9° at 100–150 m, 9.2° at 150–250 m (pole).
+
+**Real check (IDMT, open question 25)** *(real)*. 163 × 30 s of the Fraunhofer IDMT flights (Zenodo 17525811), 8-mic 15 cm cube (geometry: Table 1 of arXiv 2605.31329), compared with GPS. The GPS log has no altitude, so **only azimuth** is checked.
+- All 8 flights show the same constant rotation of the estimates (−154°), with no mirroring: the array's x axis was not aligned with the GPS frame. Corrected leave-one-flight-out (the rotation is estimated from the other 7 flights), as design 7.7 already requires for real arrays.
+- Corrected azimuth error, moving flights 25–150 m: **median 8.5°, 44 % > 10°** (beamformer, 100–800 Hz). By range: 5.1° at 25–50 m on linear passes (GPS error alone ≈ 3.6° there), 9.8° at 50–100 m, ~30° at 100–200 m.
+- Band 100–2000 Hz: 8.1°. No clock offset between GPS and audio (best at 0 s).
+- **Real direction accuracy is several times worse than the simulator's best and than the σ_u = 0.02 (1.1°) assumed in 13.2.** This dataset cannot separate the causes (GPS ±2.5 m, unknown array levelling, no altitude, a different array, real multipath and wind). Measure it with our own array and a GPS-logged drone (open question 37).
+
+#### 13.5.3 Tracking
+
+EKF of 13.2 on directions only (`loc/track.py`): constant velocity (q_acc = 6), emission-time correction (F7), measurements in the tangent plane of the predicted direction with flat-cluster elevation noise σ_u / sin(el), χ² gating (2 dof, 99.9 %), birth from two-cluster ray intersection, global-nearest-neighbour assignment per cluster, deletion after 3 s without updates. Unit tests: perfect measurements recover the track to 0.07 m; the filter is consistent (NEES 1.7, slightly conservative). σ_u is taken from each method's gated median error (Rayleigh); tuning σ_u (0.01–0.07) or q_acc (0.5–15) changed little, because the remaining errors come from biased directions (interferers), not noise.
+
+Single-drone scenes, `bf` directions (whole band):
+
+| Configuration | Coverage (≥ 2 clusters hear it) | Position median / p90 | Height median / p90 | Velocity median | Never tracked | False-track time |
+|---|---|---|---|---|---|---|
+| Tetrahedron, pole | 50 % | 12.9 / 41 m | **4.4 / 22 m** | 4.3 m/s | 32 % | 63 % |
+| Tetrahedron, ground | 54 % | 14.0 / 39 m | 5.5 / 22 m | 4.0 m/s | 31 % | 54 % |
+| Flat, ground | 37 % | 18.8 / 42 m | 12.6 / 34 m | 3.9 m/s | 39 % | 64 % |
+| Tetrahedron, pole, 150 m field | 50 % | 13.2 / 40 m | 4.4 / 21 m | 4.3 m/s | 34 % | 62 % |
+
+With the **oracle comb lines up to 2 kHz** (the 35 scenes that have it in both configurations):
+
+| Configuration | Coverage | Position median | Height median | Velocity median | Never tracked | False-track time |
+|---|---|---|---|---|---|---|
+| Tetrahedron, pole: whole band → comb | 49 → **78 %** | 10.5 → **7.2 m** | 3.8 → **3.2 m** | 5.7 → 4.4 m/s | 32 → 16 % | 64 → 46 % |
+| Flat, ground: whole band → comb | 38 → **79 %** | 20.7 → **9.8 m** | 13.5 → **4.8 m** | 6.2 → 4.4 m/s | 48 → 6 % | 60 → 25 % |
+
+**Findings**
+- **Height error grows with distance to the nearest cluster:** 2.7 m within 25 m, 3.4 m at 25–50 m, 4.0 m at 50–75 m, ~6–8 m beyond 75 m (pole tetrahedron). With flat clusters: 8.7 m within 25 m, ~20 m beyond 75 m.
+- **More clusters help:** position median 18.8 m with 2 hearing, 10.7 m with 5 (pole).
+- **Velocity is weak with directions only** (~4 m/s median). Doppler (step 3b, 13.2) was not built in this phase; in v0.3's simple test it improved velocity ~10×.
+- **False tracks are common:** 46–69 % of confirmed-track time is on something other than the drone, because a cluster that "hears the drone" often points at a louder interferer. The D-32 rating (height, speed, persistence) must screen tracks, and comb-guided direction finding halves the problem.
+- **Two drones at once:** coverage drops to 20–26 % (one direction per cluster per frame); multi-peak direction finding is needed.
+- **Latency:** median 4–6 s from "audible at two clusters" to a confirmed track for tetrahedra (12 s flat) with the whole band, 1 s with comb lines.
+
+#### 13.5.4 Answers
+
+| Question | Answer |
+|---|---|
+| **F4: how accurate are directions?** | Simulated, whole band: 5–6.5° median for tetrahedra (reflection-aware beamformer), 12° flat, with 30–60 % gross errors from in-band masking. With comb-guided direction finding: 1.4–2.5°. Real (IDMT, azimuth): 8.5° median at 25–150 m. The assumed σ_u = 0.02 (1.1°) is optimistic by 2–8×. |
+| **D-07 vs D-30 (open questions 19, 29)** | **Tetrahedra are better.** Whole band: direction 4.9–6.5° vs 12°, tracked height 4.4–5.5 m vs 12.6 m, near-horizon elevation 3° vs 20°. With comb-guided direction finding, flat clusters close most of the gap (height 4.8 vs 3.2 m) but stay worse near the horizon (5.4° vs 2.2°). Evidence for D-07; D-30 is viable only with comb-guided direction finding and no single-cluster height clue. |
+| **Pole vs ground** | Similar once the beamformer models the echo: the ground tetrahedron has better directions (4.9° vs 6.5°), the pole slightly better tracked height (4.4 vs 5.5 m). Ground mounting is cheaper and avoids the pole's echo notches (7.7). |
+| **Single-cluster height clue (5.12.3)** | **Works with the tetrahedron:** median elevation error near the horizon 3° (2.2° with comb lines), so 0° (ground) vs ~6–10° (a drone at h/ρ ≈ 0.1–0.17) separates for most frames, while the p90 of ~10° means a few seconds of persistence are needed. **Not with flat clusters** (20°; 5.4° with comb lines). |
+| **Spacing (100 vs 150 m)** | **No measurable difference** in these scenes: direction 6.5° vs 6.8°, height 4.4 m both, position 12.9 vs 13.2 m, coverage 50 % both. The error is set by masked directions, not by geometry, so the wider spacing (0.44× the clusters per km², 8.2) costs nothing here. Caveat: the scenes centre flights on the field and many drones are heard from > 150 m; tighter spacing should matter again once comb-guided direction finding removes the masking. Re-test then. |
+| **ESP32 (D-37, 9.6)** | At 10 frames/s: `ls` ≈ 13 M multiply-adds/s and lookup `srp` ≈ 14 M/s fit easily on an ESP32-S3 *(estimate)*. The reflection-aware beamformer is ~620 M/s at full grid, so it belongs on the server (mode A), or on the node only with the comb bins (~¼ of the band) and a coarser grid. But the pairwise methods are exactly the ones the echo breaks on tetrahedra, so **mode A (raw 4-channel audio to the server) is the better fit for tetrahedra**. 4 kHz direction-finding channels are enough (5 kHz for the 2 kHz band). |
+
+#### 13.5.5 Next steps
+
+1. **Comb-guided direction finding:** feed each cluster's comb-tracker lines (section 6) into the beamformer. It is the largest gain measured: 2–5× lower direction error, coverage ~50 → ~80 %.
+2. **Doppler in the EKF** (step 3b, D-13, D-16) for velocity, and check F2 (different clusters locking onto different rotor lines).
+3. **Track screening (D-32):** use height, speed and persistence to reject the false tracks.
+4. **Multi-peak direction finding** for two drones and for a drone beside a loud interferer.
+5. **Measure real σ_u with our own tetrahedron** and a GPS-logged drone, with a heading and level calibration flight (7.7).
+
 ---
 
 ## 14. Simulation and training data
@@ -1621,6 +1730,12 @@ Recorded so that similar mistakes are easier to spot.
 | "Noise sound database from a sponsor" | Searched the event page, Gmail (student account) and Drive; nothing found | Unresolved; public datasets listed in section 18 |
 | Range estimate (8.3) | Assumed a detection margin G of 10–20 dB; real flights imply G ≈ 2–7 dB, so the estimated range was 3–8× too long | Corrected in 8.3 and 5.11.3; spacing planned from ~100 m |
 | Dataset suggestion (section 18, early discussion) | Recommended the Al-Emadi DroneAudioDataset without checking its licence; it forbids security and surveillance use | Caveat added in section 18; REAL_TESTS.md had already excluded it |
+| Direction finding, Phase 1 (v0.9) | Full PHAT weighting (β = 1) let noise-only bins swamp the drone's tones (4–5° error on a clean synthetic comb) | PHAT-β with β = 0.5 (< 0.1° on the same test); β compared on the scenes (13.5.2) |
+| Direction finding, Phase 1 | Pairwise GCC on tetrahedra ignored the ground echo: 3–40° errors noise-free, −2.4° elevation bias in the scenes | Reflection-aware beamformer (`bf`, 13.5.1) |
+| Direction finding, Phase 1 | The coherence score was not normalised for β < 1, so the quality gate was meaningless | Normalised per pair so a perfect match scores 1 |
+| Localisation scoring, Phase 1 | Experiment variants (run on a subset of scenes) were first compared with the main method over all scenes | Paired comparisons on identical frames and scenes (`paired_vs_bf`, `bf_same_scenes`) |
+| Kalman filter, Phase 1 | The Joseph-form covariance update recomputed R at the updated direction instead of reusing the R in S | Same R in both; NEES test added |
+| Localisation data, Phase 1 | The drone was often "audible" (CNN label rule, 50 Hz–8 kHz) while drowned out in the 100–860 Hz direction-finding band; the first scores looked like a bug | Not a bug: in-band SNR stored per cluster and frame, errors reported against it (13.5.2) |
 ---
 
 ## 16. Known flaws and risks [C]
@@ -1641,9 +1756,9 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 | # | Flaw | Why it matters | Affects | Origin | Fix |
 |---|---|---|---|---|---|
 | F1 | **No validation on real audio.** All accuracy figures come from Claude's simulator, tested against itself (clean comb, omnidirectional source, no echoes, no wind) | Sub-metre position, 0.1 m/s velocity, 0.3 m height and 0.2 Hz tracking are best-case and may be far off | D-12 to D-16 | [C] | Record a real drone with a GPS log using one or two prototype clusters; measure actual errors first. v0.4: Joseph's field recordings are now the planned test (D-25, 14.7) |
-| F2 | **A multirotor has no single f₀.** Each rotor has its own BPF, a few % apart, changing constantly (that is how it steers) | Doppler differences between clusters are also only a few % (up to ~2v/c ≈ 7% at 12 m/s). If clusters lock onto different rotors' lines, the error is as large as the signal. The Kalman simulation used one clean tone | D-13, D-16, 9.5 | [C] | Model rotor lines separately, or track each harmonic's line-group centre; re-run simulations with rotor spread |
+| F2 | **A multirotor has no single f₀.** Each rotor has its own BPF, a few % apart, changing constantly (that is how it steers) | Doppler differences between clusters are also only a few % (up to ~2v/c ≈ 7% at 12 m/s). If clusters lock onto different rotors' lines, the error is as large as the signal. The Kalman simulation used one clean tone | D-13, D-16, 9.5 | [C] | Model rotor lines separately, or track each harmonic's line-group centre; re-run simulations with rotor spread. v0.9: the scenes now store per-rotor shaft rates, so this can be checked; Doppler tracking (task step 3b) not built yet |
 | F3 | **Coverage needs many clusters.** Each covers a hexagon of (√3/2)·s². 1 km² needs ~115 clusters at s = 100 m, ~460 at s = 50 m. Urban range ~20–50 m | Cost and maintenance (power, network, weatherproofing, levelling, surveying). The range itself rests on assumed numbers (80 dB at 1 m, G = 10–20 dB) | D-06, D-09 | Range numbers [C]; layout [J] | Measure real range first; scope to protected sites rather than open-area coverage. **v0.6:** real Phantom 4 range ~100–150 m (5.11.3), so plan s ≈ 100 m (~115 clusters/km²) |
-| F4 | **Direction accuracy is assumed** (σ_u = 0.02, σ_τ = 10 µs) | Tonal signals give repeating GCC-PHAT peaks (ambiguous direction). At 60 Hz, λ = 5.7 m is ~30× the array size. FPV BPF (≥ 750 Hz) is near the 860 Hz alias limit | D-08, D-14 | [C] | Test direction finding on real drone audio with the real array; use the broadband component too; consider a second smaller array or a larger aperture with more mics. v0.4: flat ground clusters (D-30) are worse than a tetrahedron below 45° elevation |
+| F4 | **Direction accuracy is assumed** (σ_u = 0.02, σ_τ = 10 µs) | Tonal signals give repeating GCC-PHAT peaks (ambiguous direction). At 60 Hz, λ = 5.7 m is ~30× the array size. FPV BPF (≥ 750 Hz) is near the 860 Hz alias limit | D-08, D-14 | [C] | Test direction finding on real drone audio with the real array; use the broadband component too; consider a second smaller array or a larger aperture with more mics. v0.4: flat ground clusters (D-30) are worse than a tetrahedron below 45° elevation. **v0.9 measured (13.5.2):** simulated 4.9–6.5° median for tetrahedra with the whole band (30–45 % gross errors from in-band masking), 1.4° with comb-guided direction finding; **real (IDMT azimuth) 8.5° median at 25–150 m.** The assumed 1.1° is 2–8× optimistic. Still open: our own array on real flights |
 
 ### 16.2 Significant: needs design work
 
@@ -1651,7 +1766,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 |---|---|---|---|---|
 | F5 | Missing false-alarm sources: fans and air conditioners (real blade-passing tones), generators and transformers (50 Hz mains-hum comb), helicopters, idling cars | D-02, D-17 | [C] (confuser list) | Reject tracks that are stationary and near the ground; add these sounds to training data |
 | F6 | Several drones of the same model have nearly equal f₀, so time + f₀ matching fails | 9.5, D-12 | [C] | Multi-target tracking: per-track state, assignment by geometry; simulate it |
-| F7 | Kalman gaps: no sound-delay model (~3 m at 100 m and 10 m/s); no outlier rejection; initialisation assumed close; vertical velocity weakest (±0.6 m/s best case) | D-12, D-13 | [C] | Emission-time model; Mahalanobis gating; initialise from a two-cluster triangulation |
+| F7 | Kalman gaps: no sound-delay model (~3 m at 100 m and 10 m/s); no outlier rejection; initialisation assumed close; vertical velocity weakest (±0.6 m/s best case) | D-12, D-13 | [C] | Emission-time model; Mahalanobis gating; initialise from a two-cluster triangulation. **v0.9: all three built and tested** (`loc/track.py`, 13.5.3); without the emission-time correction a 12 m/s drone ~100 m away is tracked ~3 m behind (unit test). Vertical velocity not yet measured with Doppler |
 | F8 | Echoes from buildings give false directions; simulations had none | D-14 | [C] | Gating (F7), require agreement between clusters; expect worse urban accuracy |
 | F9 | Wind noise sits in the drone's main band (50–500 Hz) and is worse on pole mounts; ignored in range estimates | D-09, 7.7 | [C] | Good windshields; measure range in windy conditions |
 | F10 | **Recording law and privacy.** Mics also capture conversations. In Victoria, check the Surveillance Devices Act 1999 *(unverified, get advice)* | 9.3 | — | Clusters already send features, not raw audio; keep spectrogram clips short and limited to drone frequencies, or drop them |
@@ -1686,17 +1801,17 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 16. ~~**D-28:** separating two-stroke drones from ground engines~~ Resolved v0.7: alert on every engine; the D-32 rating separates them [J].
 17. Are the two-stroke drones fixed-wing or multirotor? (Both are rendered until decided.)
 18. Which drone and which microphone for the field test (14.7)? Check that the drone sits inside the simulated class ranges.
-19. Compare flat ground clusters, tetrahedra and distributed GPS-synced mics in the scenario simulator: height error vs distance and cluster spacing (D-30).
+19. ~~Compare flat ground clusters, tetrahedra and distributed GPS-synced mics in the scenario simulator: height error vs distance and cluster spacing (D-30).~~ Answered v0.9 for tetrahedra vs flat clusters, pole vs ground and 100 vs 150 m spacing (13.5.4). Distributed GPS-synced single mics were not simulated.
 20. Tune the frame-label thresholds (v0.5 rule: 2nd tone region ≥ 6 dB positive, 1st < 0 dB negative, 5.8.6) against what a person can hear in the rendered clips.
 21. ~~Real recorded backgrounds in training?~~ Resolved v0.7: no; training stays sim-only so the detector is not made over-cautious (D-25, D-33) [J].
 22. Explain the 76 % electric-drone detection at 0–25 m (5.9.4): metric or model?
 23. ~~Scoring drone_engine against ground engines~~ Resolved v0.7: engine alerts are kept and rated by D-32 (low and slow → probably ground engine).
 24. Run B and A on Joseph's flyover recordings (14.7) with `cnn/infer.py`.
-25. Test direction finding (GCC-PHAT) on the IDMT 8-channel array recordings against their GPS positions: the first real check of F4 and D-14 (5.11.4).
+25. ~~Test direction finding (GCC-PHAT) on the IDMT 8-channel array recordings against their GPS positions.~~ Done v0.9 (13.5.2): azimuth median 8.5° at 25–150 m after a heading calibration; elevation and height cannot be checked (no GPS altitude).
 26. Does the electric head's reliance on > 1 kHz (5.11.2) cost range or noise robustness? Test band-limited inputs and real tonal negatives above 1 kHz.
 27. Measure real drone source levels (L_src at 1 m) from the IDMT recordings and GPS distances, to separate "quiet source" from "small G" in 5.11.3.
 28. Build the D-32 rating in the scenario simulator (true height and speed known) and tune its thresholds; report the false-alarm reduction and any recall lost.
-29. Choose tetrahedra (D-07) or flat ground clusters (D-30): D-32's single-cluster height clue only works with the tetrahedron (5.12.3).
+29. Choose tetrahedra (D-07) or flat ground clusters (D-30): D-32's single-cluster height clue only works with the tetrahedron (5.12.3). **Evidence v0.9 (13.5.4): tetrahedra are better, including near the horizon (elevation error 3° vs 20°); Joseph to decide.**
 30. Which Nemotron model, and how it is served: confirm Meterless Nightshift can serve it locally, otherwise NVIDIA's own serving (D-34).
 31. Where personnel, unit and shelter locations come from, and who may access them (Zetaris sources and access control; D-34).
 32. Delivery channels (phone, SMS, sirens, ATAK / Cursor-on-Target) and who may approve an evacuation (D-35).
@@ -1704,6 +1819,11 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 34. Danger radius R, look-ahead limit T_alert and widening factor k for the alert rule; tune in the scenario simulator (13.3).
 35. ESP32-S3 node: choose the TDM mic and board; verify on the bench that the 4 channels are sample-synchronised and that the comb trigger and (optionally) direction finding fit in real time (D-37).
 36. Network for the nodes: Wi-Fi with external antennas, ESP mesh, gateways or LTE/NB-IoT; packet encryption and authentication; over-the-air updates (D-37).
+37. Measure real direction accuracy (σ_u, azimuth and elevation) with our own tetrahedron and a GPS-logged drone, including a heading and levelling calibration flight; IDMT gave 8.5° azimuth but cannot separate GPS, levelling and array effects (13.5.2).
+38. Build comb-guided direction finding: the per-cluster comb tracker supplies the drone's lines, and the beamformer uses only those bins up to ~2 kHz. Oracle version: 2–5× lower error, coverage ~50 → ~80 % (13.5.3).
+39. Add Doppler to the EKF (task step 3b, D-13, D-16) and check F2 with the stored per-rotor shaft rates.
+40. Multi-peak direction finding for two drones and for a drone beside a louder interferer (two-drone coverage is 20–26 %).
+41. Tune track screening (D-32) on the localisation scenes: 46–69 % of confirmed-track time is on interferers (13.5.3).
 
 ---
 
