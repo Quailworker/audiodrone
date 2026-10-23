@@ -48,7 +48,7 @@ def evaluate(model, loader, device):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", nargs="+", required=True)
-    ap.add_argument("--frontend", default="logf", choices=["logf", "mel"])
+    ap.add_argument("--frontend", default="logf", choices=["logf", "mel", "logf_comb"])
     ap.add_argument("--arch", default="cnn14", choices=["cnn14", "small"])
     ap.add_argument("--checkpoint", default="weights/Cnn14_DecisionLevelMax_mAP=0.385.pth")
     ap.add_argument("--out", required=True)
