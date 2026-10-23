@@ -330,8 +330,13 @@ DRONE_CLASS_PROBS = [.3, .3, .25, .15]
 
 # --- scene -------------------------------------------------------------------------------
 
-def sample_and_render(seed, heldout=False, mics=((0.0, 0.0, None),)):
-    """Sample a random scene from seed and render it. Returns (audio (n_mics, n), labels, meta)."""
+def sample_and_render(seed, heldout=False, mics=((0.0, 0.0, None),), label_mics=None):
+    """Sample a random scene from seed and render it. Returns (audio (n_mics, n), labels, meta).
+
+    label_mics: None (default) labels mic 0 only. A list of mic indices instead keeps per-category
+    signals only at those mics (memory), labels each of them, and returns
+    (audio, [labels per label mic], meta, drone_tracks). The random draws are the same either way.
+    """
     rng = np.random.default_rng(seed)
     has_drone = rng.uniform() < 0.75
     n_drones = (2 if rng.uniform() < 0.1 else 1) if has_drone else 0
@@ -357,8 +362,10 @@ def sample_and_render(seed, heldout=False, mics=((0.0, 0.0, None),)):
     n_out = int(duration * FS)
     n_src = int((duration + PAD_S) * FS)
 
-    per_cat = {}                       # category -> (n_mics, n_out) pascals
+    per_cat = {}                       # category -> (n_mics, n_out) pascals (only label_mics if given)
     drone_tracks = []
+    keep = None if label_mics is None else list(label_mics)
+    total = None if keep is None else np.zeros((len(mic_pos), n_out), np.float32)
 
     def add(cat, sig_pa, t, p, directivity=None):
         rows, rs = [], []
@@ -367,7 +374,12 @@ def sample_and_render(seed, heldout=False, mics=((0.0, 0.0, None),)):
                                              env["temp_c"], env["rh"], directivity)
             rows.append(y)
             rs.append(r)
-        per_cat[cat] = per_cat.get(cat, 0) + np.array(rows)
+        rows = np.array(rows)
+        if keep is None:
+            per_cat[cat] = per_cat.get(cat, 0) + rows
+        else:
+            total[:] += rows
+            per_cat[cat] = per_cat.get(cat, 0) + rows[keep]
         return rs
 
     for q, fixed_wing, t, p, _dur, info in drones:
@@ -418,8 +430,14 @@ def sample_and_render(seed, heldout=False, mics=((0.0, 0.0, None),)):
         if wind_level:
             bed[j] += ac.set_level_dba(src.mic_wind(rng, n_out, FS), FS, wind_level)
         bed[j] += ac.set_level_dba(rng.standard_normal(n_out).astype(np.float32), FS, rng.uniform(20, 32))
-    per_cat["bed"] = bed
     meta.update(beds=kinds, bed_level=bed_level, wind_level=wind_level, duration=duration)
+    if keep is not None:
+        total += bed
+        per_cat["bed"] = bed[keep]
+        labels = [frame_labels({c: x[[k]] for c, x in per_cat.items()}, drone_tracks, mic_pos[j], n_out)
+                  for k, j in enumerate(keep)]
+        return total, labels, meta, drone_tracks
+    per_cat["bed"] = bed
 
     audio = sum(per_cat.values())
     labels = frame_labels(per_cat, drone_tracks, mic_pos[0], n_out)

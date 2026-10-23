@@ -6,3 +6,5 @@ models/
 .venv
 *.detections.*
 analysis/out/
+logs/
+.pytest_cache/
