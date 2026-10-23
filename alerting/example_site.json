@@ -1,0 +1,116 @@
+{
+  "_comment": "Made-up example site around the simulated 100 m cluster field (loc_v1). Local metres: x east, y north, origin at the central cluster. Replace with real data in Zetaris; never commit real personnel locations.",
+  "name": "Example site",
+  "origin_latlon": [
+    -37.8,
+    144.96
+  ],
+  "sites": [
+    {
+      "name": "Compound",
+      "x": 0,
+      "y": 0,
+      "radius_m": 60
+    },
+    {
+      "name": "Village",
+      "x": 220,
+      "y": 120,
+      "radius_m": 80
+    },
+    {
+      "name": "Supply depot",
+      "x": -180,
+      "y": -150,
+      "radius_m": 40
+    }
+  ],
+  "shelters": [
+    {
+      "name": "Shelter A",
+      "x": 20,
+      "y": -15,
+      "capacity": 40
+    },
+    {
+      "name": "Shelter B",
+      "x": -120,
+      "y": 60,
+      "capacity": 60
+    },
+    {
+      "name": "Shelter C",
+      "x": 240,
+      "y": 160,
+      "capacity": 120
+    },
+    {
+      "name": "Shelter D",
+      "x": -200,
+      "y": -120,
+      "capacity": 25
+    },
+    {
+      "name": "Shelter E",
+      "x": 330,
+      "y": 260,
+      "capacity": 80
+    }
+  ],
+  "groups": [
+    {
+      "id": "U1",
+      "name": "Section 1",
+      "kind": "unit",
+      "x": 10,
+      "y": 5,
+      "size": 9,
+      "channel": "radio:net-1"
+    },
+    {
+      "id": "U2",
+      "name": "Section 2",
+      "kind": "unit",
+      "x": -60,
+      "y": -30,
+      "size": 8,
+      "channel": "radio:net-2"
+    },
+    {
+      "id": "U3",
+      "name": "Depot guard",
+      "kind": "unit",
+      "x": -175,
+      "y": -140,
+      "size": 4,
+      "channel": "radio:net-3"
+    },
+    {
+      "id": "C1",
+      "name": "Village north",
+      "kind": "civilians",
+      "x": 210,
+      "y": 170,
+      "size": 35,
+      "channel": "sms:village-north"
+    },
+    {
+      "id": "C2",
+      "name": "Village south",
+      "kind": "civilians",
+      "x": 235,
+      "y": 80,
+      "size": 50,
+      "channel": "sms:village-south"
+    },
+    {
+      "id": "C3",
+      "name": "Farm",
+      "kind": "civilians",
+      "x": 90,
+      "y": -210,
+      "size": 6,
+      "channel": "sms:farm"
+    }
+  ]
+}

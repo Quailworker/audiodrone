@@ -1,0 +1,46 @@
+{
+ "flat_ground_100/bf": {
+  "config": "flat_ground_100",
+  "method": "bf",
+  "scenes": 300,
+  "track_frames": 166769,
+  "drone": {
+   "frames": 43594,
+   "likely": 0.761,
+   "possible": 0.204,
+   "ground": 0.034,
+   "height_median_m": 80.7,
+   "speed_median_m_s": 10.1
+  },
+  "false": {
+   "frames": 123175,
+   "likely": 0.12,
+   "possible": 0.871,
+   "ground": 0.009,
+   "height_median_m": 285.4,
+   "speed_median_m_s": 22.3
+  }
+ },
+ "flat_ground_100/bf_comb2k": {
+  "config": "flat_ground_100",
+  "method": "bf_comb2k",
+  "scenes": 300,
+  "track_frames": 45332,
+  "drone": {
+   "frames": 34100,
+   "likely": 0.64,
+   "possible": 0.3,
+   "ground": 0.06,
+   "height_median_m": 88.7,
+   "speed_median_m_s": 9.8
+  },
+  "false": {
+   "frames": 11232,
+   "likely": 0.083,
+   "possible": 0.904,
+   "ground": 0.012,
+   "height_median_m": 211.7,
+   "speed_median_m_s": 26.1
+  }
+ }
+}

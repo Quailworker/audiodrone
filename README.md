@@ -40,6 +40,8 @@ Status (design v0.9, models v0.5, 2026-10-23): Phase 1 localisation built and me
 | `loc/idmt.py` | Direction finding on the real 8-channel IDMT recordings vs GPS |
 | `tests/` | pytest unit tests for direction finding and tracking |
 | `results/loc_v1/` | Localisation results: `summary.json`, `summary.md`, figures, `idmt/` |
+| `alerting/` | System layer: `rating.py` (D-32), `danger.py` (13.3/13.6.4), `core.py` (fixed-logic alerts), `delivery.py`, `agent.py` (Nemotron), `sitedata.py` + `sitedata_mcp.py` (Zetaris slot), `config.py`, `replay.py`, `demo.py`, `eval_rating.py` |
+| `results/system_demo/` | Alert timelines from replays and the tabletop, rating evaluation |
 | `results/sim_v1_manifest.csv` | One row per scene (length, level, sources, label counts) to check a re-render |
 
 Not in git (see `.gitignore`): `data/` (rendered scenes, 26 GB), `weights/` (CNN14 checkpoint), `models/` and `runs/` (trained weights).
@@ -157,6 +159,28 @@ bash scripts/render_loc.sh tetra_pole_150 8                # optional
 ```
 
 Direction finding needs a GPU for speed (about 4 s per scene on an RTX 3080, main methods only); it runs on the CPU too.
+
+## 7. System layer: alerts, Nemotron, site data
+
+`alerting/` turns tracks into alerts (design.md 13.6):
+- **Core** (no language model): rating, danger zone, tiers.
+- **Delivery:** log, webhook, ATAK CoT, operator approval.
+- **Nemotron layer:** follow-ups and operator Q&A through an OpenAI-compatible endpoint, with the site data over MCP.
+
+```bash
+.venv/bin/pip install -r requirements-alerting.txt          # openai, mcp
+ollama pull nemotron-mini                                   # stand-in for Meterless Nightshift (Linux)
+.venv/bin/python -m pytest -q tests/test_alerting.py
+.venv/bin/python -m alerting.demo                           # tabletop: on course -> evacuate -> take cover -> all clear
+.venv/bin/python -m alerting.replay --pick 3 --method bf_comb2k   # simulated scenes end to end
+.venv/bin/python -m alerting.eval_rating --method bf_comb2k       # rating: drone vs false tracks
+```
+
+**Use the real services:**
+- **Meterless Nightshift:** set `LLM_BASE_URL=http://<nightshift-pc>:8088/v1`, `LLM_API_KEY=<key>` and `LLM_MODEL=<Nemotron model name in Nightshift>`.
+- **Zetaris:** set `SITE_MCP="<command that starts its MCP server>"`, exposing the tools in `alerting/sitedata_mcp.py`.
+
+`alerting/example_site.json` is a made-up site. Real personnel locations belong in Zetaris and never in git.
 
 ## Outputs and labels
 
