@@ -1,0 +1,3 @@
+# Alerting layer (alerting/): Nemotron via an OpenAI-compatible endpoint, site data via MCP
+openai==3.37.0
+mcp==2.3.0

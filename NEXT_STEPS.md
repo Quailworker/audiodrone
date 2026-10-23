@@ -38,7 +38,19 @@ Why first: height, speed and position feed everything downstream (the likelihood
 - Real check: direction finding on the 8-channel IDMT recordings vs GPS (open question 25)
 - Write-up: design.md v0.9, section 13.5
 
-## 2. Phase 2: decide and alert (fixed logic, no language model)
+## 2. Phase 2: decide and alert (fixed logic, no language model): **built in simulation** (design v0.9.1, 13.6)
+
+Built 2026-10-23 in `alerting/`:
+- the rating (D-32, D-38);
+- the danger zone, revised to the probability of being inside R plus an "on course" warning;
+- the alert core with tiers and operator approval;
+- delivery: log, webhook, ATAK CoT.
+
+Measured on replays and a tabletop. Still to do:
+- tune the thresholds (open questions 34, 44);
+- tripwire clusters for warning time (46).
+
+Original plan, kept for reference:
 
 Uses the Phase 1 tracks. Instructions to be written after Phase 1 reports.
 
@@ -46,7 +58,17 @@ Uses the Phase 1 tracks. Instructions to be written after Phase 1 reports.
 - Danger zone (D-35, design 13.3): closest approach, arrival time, uncertainty corridor
 - Alert core: tiers advisory / take cover / evacuate (design 13.4); first alert within ~1 s
 
-## 3. Phase 3: the people-facing layer
+## 3. Phase 3: the people-facing layer: **built with stand-ins** (13.6.2)
+
+**Built:** the Nemotron layer (tool calling; number, unit, name and time checks) and the site-data MCP contract.
+
+**Still to connect:**
+- **Meterless Nightshift:** install it on Anna's Windows PC, which has the NVIDIA GPU it needs; there is no Linux build. Then set `LLM_BASE_URL`.
+- **Zetaris:** needs access, i.e. an MCP endpoint or SQL to wrap; then set `SITE_MCP`.
+
+Until then, Nemotron Mini on Ollama and a local MCP server stand in.
+
+Original plan, kept for reference:
 
 - Nemotron agent with tools (D-34, design 13.4); numbers only from tool results
 - Zetaris: personnel, unit and shelter locations, cluster reports, tracks (MCP)

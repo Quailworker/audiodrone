@@ -1,6 +1,7 @@
 # Acoustic Drone Detection and Tracking: Design
 
 - **Status:** draft v0.9.1, 2026-10-23.
+  - v0.9.1 also builds the **system layer** (13.6, `alerting/`): the D-32 rating, the danger zone (revised: probability of being inside R, plus an "on course" early warning, 13.6.4), the fixed-logic alert core with tiers and operator approval, delivery (log, webhook, ATAK CoT), the Nemotron layer (OpenAI-compatible endpoint, tool calling, number, unit, name and time checks) and site data behind MCP. Meterless Nightshift and Zetaris have stand-ins (Ollama + Nemotron Mini; a local MCP server) until they are installed or connected (13.6.2).
   - v0.9.1 records Joseph's decision: **all clusters are flat, on the ground** (D-30 adopted, D-07 superseded). Height is kept but coarse: it comes from several clusters together and is used to tell "on the ground" from "airborne", not as an exact number (D-38). Consequences: direction finding can use the cheap pairwise methods (flat ground clusters are immune to the ground echo), so it can run on the ESP32 (mode B); there is no single-cluster height clue, and very low drones are rated as "possible drone, unrated" (5.12.3).
   - v0.9 adds the **Phase 1 localisation results** (13.5): multi-cluster rendering, direction finding (incl. a new reflection-aware beamformer), the EKF tracker and their measured accuracy for tetrahedra vs flat clusters, pole vs ground and 100 vs 150 m spacing, plus the first real direction-finding check on the IDMT array recordings. Main findings: the ground echo breaks pairwise direction finding on tetrahedra (fixed by modelling it); the 100–860 Hz band is often masked, and steering on the drone's own comb lines up to 2 kHz cuts direction errors 2–5×; tetrahedra beat flat clusters; real azimuth accuracy is ~8.5° median, several times worse than assumed (F4).
   - v0.8.1 replaces the Raspberry Pi cluster computer with an **ESP32-S3** that sends packets (Joseph), D-37, section 9.6. Revises D-10: direction finding may run on the server when raw multichannel audio is sent. (Numbered v0.8.1 because v0.9 is reserved for the Phase 1 localisation results.)
@@ -1430,6 +1431,8 @@ d_min < R + k·σ(τ*)   and   0 < τ_arrive < T_alert   →   site is threatene
 
 **Recalculated** every Kalman update (every 0.1 s), so the zone shrinks or moves as the track firms up. Trust a few seconds ahead more than longer horizons (13.2).
 
+**v0.9.1:** the alert rule above failed both ways in the replays, so the built version uses the probability of being inside R plus a separate "on course" warning (13.6.4).
+
 ### 13.4 Alerting and the Nemotron layer (D-34, D-35)
 
 **Joseph's idea [J]** (paraphrased):
@@ -1585,6 +1588,117 @@ With the **oracle comb lines up to 2 kHz** (the 35 scenes that have it in both c
 4. **Multi-peak direction finding** for two drones and for a drone beside a loud interferer.
 5. **Measure real σ_u with our own tetrahedron** and a GPS-logged drone, with a heading and level calibration flight (7.7).
 
+### 13.6 The system layer: rating, danger zone, alerts, Nemotron, site data (v0.9.1) [C]
+
+Built after Phase 1 in `alerting/` (design 5.12, 13.3, 13.4; D-32, D-34, D-35, D-38). Everything below is tested on the simulated scenes and a scripted tabletop exercise. Nothing has run on real audio yet.
+
+#### 13.6.1 Architecture
+
+```
+clusters --directions--> EKF tracker (loc/track.py) --tracks--> ALERT CORE (fixed logic, alerting/core.py)
+                                                                  |  rating (rating.py), danger zone (danger.py)
+CNN detections without a track ---------------------------------->|  tiers + template messages, < 1 ms per tick
+                                                                  v
+                                       delivery (delivery.py): log, webhook, ATAK CoT, operator approvals
+                                                                  ^
+NEMOTRON LAYER (agent.py): follow-ups, operator Q&A  ------------|  only adds to what the core sent
+   |  OpenAI-compatible endpoint: Meterless Nightshift (stand-in: Ollama + Nemotron Mini)
+   |  tools: get_tracks, get_danger_zone, explain_evidence (core)
+   |         people_in_zone, nearest_shelter, list_shelters, list_sites, get_group (site data over MCP)
+SITE DATA over MCP: Zetaris (stand-in: alerting/sitedata_mcp.py over a JSON site file)
+```
+
+Configuration: `alerting/config.py`. `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` point at Nightshift; `SITE_MCP` points at the Zetaris MCP server. Swapping in the real services is configuration only.
+
+#### 13.6.2 Sponsor tools: status
+
+| Tool | What it is (checked 2026-10-23) | Status here |
+|---|---|---|
+| **Meterless Nightshift** | Local AI server for Mac, Windows (NVIDIA GPU required) and DGX Spark. It serves an OpenAI-compatible API on the LAN (e.g. `http://<pc>:8088/v1`, key `rt-local`) and lists local Nemotron models (Nemotron 3.5 Lightning, Nemotron 3 Nano 30B-A3B) | **Not installed.** There is no Linux desktop build, so it cannot run on the Quail desktop. Anna's Windows PC (RTX 3080) qualifies, but it is a desktop installer on a shared PC, so Joseph should install it. Until then, Ollama serves **Nemotron Mini** (4.2B, NVIDIA licence) behind the same API |
+| **Zetaris** | Commercial data-federation platform; no public package or MCP server found | **Not connected.** The MCP tool contract is defined (13.6.1), and a stand-in server implements it over `alerting/example_site.json` (made-up site). Connecting needs Zetaris access: an MCP endpoint, or a SQL endpoint to wrap |
+
+#### 13.6.3 Tiers as built
+
+| Tier | Trigger | To | Automatic? |
+|---|---|---|---|
+| Log | Track rated "ground" (low and slow, D-32) | Log only | Yes |
+| Advisory | CNN detection with no track; track rated "possible"; likely track with no site on its course; new or uncertain track near a site | Operators | Yes |
+| On course | Likely track whose predicted path passes through a site, but the prediction is not yet confident | Operators | Yes |
+| Take cover | Likely track, confirmed (≥ 10 updates, position σ ≤ 30 m), site threatened (probability ≥ 0.2 of being within R) | Everyone within the site zone | **Yes** |
+| Evacuate | Likely, confirmed (≥ 20 updates), site threatened or on course, and a shelter outside the zone is reachable on foot before arrival | Each group, with its shelter | **Operator approval.** Automatic only when threatened and arrival < 60 s |
+| All clear | A threatening track is lost, or no site is threatened for 10 s | Operators | Yes |
+
+Messages repeat only on escalation or every 30 s.
+
+#### 13.6.4 Danger zone: what changed from 13.3
+
+13.3's alert rule (`d_min < R + k·σ(τ*)`, with arrival computed against that widened radius) failed in two opposite ways in the replays:
+1. **False "over it now".** For a slow drone, τ* is far ahead and σ grows like τ^1.5, so R + kσ reached hundreds of metres. That radius was applied from now on: a drone 200 m away read as "over the site now", and six groups were told to take cover (scene L20000014).
+2. **Missed straight-in attack.** With the tracker's process noise (q_acc = 6) as the prediction model, a drone flying straight at a site from 300 m at 10 m/s had only an 8 % chance of being inside R at arrival, so no alert at all.
+
+Built instead (`alerting/danger.py`):
+
+```
+q(τ) = P(|X(τ) − s| ≤ R),   X(τ) ~ N(p + v·τ, σ(τ)²·I)
+     = ncx2.cdf((R/σ)², 2, (|p + v·τ − s|/σ)²)
+σ(τ) from P with prediction noise Q_PRED = 0.5 (m/s²)²/s (purposeful flight)
+threatened ⇔ max over τ ≤ 120 s of q(τ) ≥ 0.2;   arrival = first such τ
+on course  ⇔ the mean path passes within R within 120 s
+```
+
+On course only produces operator warnings and evacuation offers (approval needed); take-cover needs the probability. A straight-in drone from 300 m now triggers take-cover ~18 s out, and the slow far-away drone no longer does.
+
+#### 13.6.5 Results *(simulated)*
+
+**Replays** of flat-cluster scenes (`alerting/replay.py`; directions = oracle comb lines to 2 kHz, oracle detection), alerts compared with the true path:
+
+| Scene | Take-cover | True closest pass | Warning |
+|---|---|---|---|
+| L20000010 | Compound at 56 s | 50 m at 62 s | 6 s |
+| L20000014 | Compound at 42 s | 26 m at 59 s | 17 s |
+| L20000020 | Village at 4.5 s, then Compound at 32 s | 56 m at 11 s; 17 m at 48 s | 6.5 s; 16 s |
+| L20000008 | Compound at 1.6 s, then depot at 18 s | 31 m at 0 s; depot **90 m** (radius 40) | depot alert was a near miss: the track's predicted path was ~65 m off |
+| L20000023 | none (advisories only) | 54 m at 89 s | **missed**: the drone was 30 dB below the background in the direction-finding band, so there was never a position. Operators got "possible drone heard, no position" |
+
+- **Speed:** first alert 0.35 s after the first detection; the core takes < 1 ms per 0.1 s tick.
+- **Short warnings:** the 100 m field only gives 5–20 s of warning, so take cover in place is the only sensible order. Longer warnings need tripwire clusters further out (D-36).
+
+**Tabletop** (`alerting/demo.py`; a drone approaches the village from 1.4 km at 10 m/s):
+1. On-course warning 118 s out.
+2. Evacuation request; approved after 10 s; the north village group is sent to Shelter E (150 m, ~2 min).
+3. ATAK CoT marker.
+4. Take-cover at 18 s out.
+5. All clear when it turns away.
+
+The south village group has no reachable shelter outside the zone, so it gets take-cover only. The core never sends people walking into the open if they cannot make it.
+
+**The rating separates drone tracks from false tracks** (all 300 flat scenes, every confirmed track every 0.1 s; `alerting/eval_rating.py`):
+
+| Directions | Drone track time rated likely | False track time rated likely | False-track time / drone-track time | Share of "likely" that is a drone |
+|---|---|---|---|---|
+| Whole band (100–860 Hz) | 76 % | 12 % | 2.8× | 69 % |
+| Comb lines to 2 kHz (oracle) | 64 % | 8 % | 0.3× | **96 %** |
+
+False tracks are rarely "ground". They sit high (median 200–285 m) with an uncertain height, because rays toward interferers near the horizon intersect at odd heights. So most land in "possible". Steering on the drone's lines removes most of them before the rating sees them.
+
+#### 13.6.6 The Nemotron layer: what the checks catch *(Nemotron Mini, 4.2B)*
+
+The core has always sent its alert first. Nemotron writes follow-ups and answers. A follow-up is used only if all of these hold:
+- every number comes from the facts or a tool result, including units, so 4 s is never "4 min";
+- every shelter or site it names exists;
+- it names the assigned shelter;
+- a shelter is suggested only if it can be reached before the drone arrives.
+
+| Seen in testing | Caught? |
+|---|---|
+| Invented distances ("100 m away") | Yes, number check |
+| Invented shelters ("West Shelter", "Shelter 1") | Yes, name check (added after the first runs) |
+| "drone arrives in 4 min" for 4 s; "in 1 min" for 118 s | Yes, unit check (added after the first runs) |
+| Telling villagers to walk 3 min to a shelter with the drone 4 s away | Yes, time gate (added after the first runs; the core already had it) |
+| A wrong conclusion from correct numbers ("closest site is the Compound, 1007 m" when the Village was 780 m) | **No.** Number and name checks cannot catch reasoning errors |
+
+**Implication:** with a 4B model, use Nemotron for wording and Q&A, never for decisions. That is already the design (D-34). A larger Nemotron (e.g. Nemotron 3 Nano 30B-A3B through Nightshift) should reduce rejections and reasoning errors; measure that once Nightshift is installed (open question 45).
+
 ---
 
 ## 14. Simulation and training data
@@ -1737,6 +1851,8 @@ Recorded so that similar mistakes are easier to spot.
 | Direction finding, Phase 1 | The coherence score was not normalised for β < 1, so the quality gate was meaningless | Normalised per pair so a perfect match scores 1 |
 | Localisation scoring, Phase 1 | Experiment variants (run on a subset of scenes) were first compared with the main method over all scenes | Paired comparisons on identical frames and scenes (`paired_vs_bf`, `bf_same_scenes`) |
 | Kalman filter, Phase 1 | The Joseph-form covariance update recomputed R at the updated direction instead of reusing the R in S | Same R in both; NEES test added |
+| Danger zone (13.3), v0.9.1 | `R + k·σ(τ*)` applied from now on made slow, far drones read as "over the site now"; the tracker's process noise used for prediction made a straight-in drone score 8 % and raise no alert | Probability of being inside R with a purposeful-flight prediction model, plus an approval-only "on course" warning (13.6.4); regression tests |
+| Nemotron layer, v0.9.1 | The first number-only check let through invented shelter names, wrong units and walking advice with no time to walk | Facts fetched first; name, unit and time-to-shelter checks (13.6.6) |
 | Localisation data, Phase 1 | The drone was often "audible" (CNN label rule, 50 Hz–8 kHz) while drowned out in the 100–860 Hz direction-finding band; the first scores looked like a bug | Not a bug: in-band SNR stored per cluster and frame, errors reported against it (13.5.2) |
 ---
 
@@ -1812,12 +1928,10 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 25. ~~Test direction finding (GCC-PHAT) on the IDMT 8-channel array recordings against their GPS positions.~~ Done v0.9 (13.5.2): azimuth median 8.5° at 25–150 m after a heading calibration; elevation and height cannot be checked (no GPS altitude).
 26. Does the electric head's reliance on > 1 kHz (5.11.2) cost range or noise robustness? Test band-limited inputs and real tonal negatives above 1 kHz.
 27. Measure real drone source levels (L_src at 1 m) from the IDMT recordings and GPS distances, to separate "quiet source" from "small G" in 5.11.3.
-28. Build the D-32 rating in the scenario simulator (true height and speed known) and tune its thresholds; report the false-alarm reduction and any recall lost.
+28. Build the D-32 rating in the scenario simulator (true height and speed known) and tune its thresholds; report the false-alarm reduction and any recall lost. **v0.9.1: built (`alerting/rating.py`) and measured (13.6.5):** "likely" covers 64–76 % of drone track time and 8–12 % of false track time; thresholds not yet tuned.
 29. ~~Choose tetrahedra (D-07) or flat ground clusters (D-30).~~ Resolved v0.9.1: **all flat, on the ground** (D-30), with coarse height (D-38) [J].
-42. Map-position (2D) tracking for flat clusters: their tracked share is lower than the tetrahedra's (37 % vs 54 %), probably because poor elevation hurts the 3D gating and track birth; test a tracker that weights elevation down or tracks the ground position first.
-43. Flat-cluster layout: the v0.9 simulation used a 20 cm triangle with a centre mic. Choose the final geometry (triangle + centre, or a 4-mic square) and size for the ESP32 node, now that the direction-finding band can extend to ~2 kHz (13.5.2).
-30. Which Nemotron model, and how it is served: confirm Meterless Nightshift can serve it locally, otherwise NVIDIA's own serving (D-34).
-31. Where personnel, unit and shelter locations come from, and who may access them (Zetaris sources and access control; D-34).
+30. Which Nemotron model, and how it is served: confirm Meterless Nightshift can serve it locally, otherwise NVIDIA's own serving (D-34). **v0.9.1:** Nightshift has a Windows build (NVIDIA GPU) that serves Nemotron 3 Nano 30B-A3B / Nemotron 3.5 Lightning over an OpenAI-compatible API, but there is no Linux desktop build. Install it on Anna's PC (Joseph) and set `LLM_BASE_URL`; Nemotron Mini on Ollama is the stand-in (13.6.2).
+31. Where personnel, unit and shelter locations come from, and who may access them (Zetaris sources and access control; D-34). **v0.9.1:** the MCP tool contract is defined and implemented by a stand-in (13.6.1); needs Zetaris access (MCP endpoint or SQL to wrap) to connect.
 32. Delivery channels (phone, SMS, sirens, ATAK / Cursor-on-Target) and who may approve an evacuation (D-35).
 33. Likely approach routes, expected drone speeds and the warning time required: these set the tripwire ring distance and sectors (D-36).
 34. Danger radius R, look-ahead limit T_alert and widening factor k for the alert rule; tune in the scenario simulator (13.3).
@@ -1827,7 +1941,12 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 38. Build comb-guided direction finding: the per-cluster comb tracker supplies the drone's lines, and the beamformer uses only those bins up to ~2 kHz. Oracle version: 2–5× lower error, coverage ~50 → ~80 % (13.5.3).
 39. Add Doppler to the EKF (task step 3b, D-13, D-16) and check F2 with the stored per-rotor shaft rates.
 40. Multi-peak direction finding for two drones and for a drone beside a louder interferer (two-drone coverage is 20–26 %).
-41. Tune track screening (D-32) on the localisation scenes: 46–69 % of confirmed-track time is on interferers (13.5.3).
+41. Tune track screening (D-32) on the localisation scenes: 46–69 % of confirmed-track time is on interferers (13.5.3). v0.9.1: with comb-guided directions, 96 % of "likely" track time is a real drone (13.6.5).
+42. Map-position (2D) tracking for flat clusters: their tracked share is lower than the tetrahedra's (37 % vs 54 %), probably because poor elevation hurts the 3D gating and track birth; test a tracker that weights elevation down or tracks the ground position first.
+43. Flat-cluster layout: the v0.9 simulation used a 20 cm triangle with a centre mic. Choose the final geometry (triangle + centre, or a 4-mic square) and size for the ESP32 node, now that the direction-finding band can extend to ~2 kHz (13.5.2).
+44. Reject implausible false tracks: they sit at a median 200–285 m with uncertain height (13.6.5). Test a height ceiling or a height-uncertainty penalty in the rating.
+45. Measure the Nemotron layer with a larger model through Nightshift (Nemotron 3 Nano 30B-A3B): rejection rate and reasoning errors vs Nemotron Mini (13.6.6).
+46. Tripwire clusters (D-36) for warning time: the 100 m field gives 5–20 s, enough only for take cover in place.
 
 ---
 
