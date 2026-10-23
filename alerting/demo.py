@@ -54,9 +54,10 @@ async def run(use_llm, approve_after, out):
                             core.delivery.send(r)
                 if round(t, 1) in QUESTIONS:
                     q = QUESTIONS[round(t, 1)]
-                    a, _ = await agent.answer(q)
-                    core.delivery.send({"t": round(t, 1), "tier": "operator_qa", "to": "operators",
-                                        "text": f"Q: {q} A: {a or '(answer withheld: failed the fact check)'}", "source": "nemotron"})
+                    a, _, unverified = await agent.answer(q)
+                    flag = f" [unverified: {', '.join(unverified)}]" if unverified else ""
+                    core.delivery.send({"t": round(t, 1), "tier": "operator_qa", "to": "operators", "unverified": unverified,
+                                        "text": f"Q: {q} A: {a or '(no answer)'}{flag}", "source": "nemotron"})
             if round(t, 1) == 60.0:
                 core.delivery.send({"t": 60.0, "tier": "cot", "to": "ATAK", "text": cot_event(1, *path(60)[:3], site.origin_latlon())})
     finally:

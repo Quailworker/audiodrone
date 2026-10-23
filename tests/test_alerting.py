@@ -143,6 +143,8 @@ def test_number_guard():
     assert check_numbers("Shelter B is 100 m away.", [141.0]) == [100.0]
     assert check_numbers("Unit U1 go now.", []) == []                       # ids are not numbers
     assert check_numbers("Likelihood 90%.", [0.9]) == []
+    from alerting.agent import normalise
+    assert check_numbers(normalise("Track at (45 m E, \u2010443 m N)."), [45.0, -443.0]) == []
 
 
 def test_unit_guard():
@@ -151,10 +153,12 @@ def test_unit_guard():
 
 
 def test_name_guard():
+    from alerting.agent import normalise
     core, _ = _core()
     layer = NemotronLayer.__new__(NemotronLayer)
     layer.core = core
     assert layer.unknown_names("Go to Shelter B now.") == []
+    assert layer.unknown_names(normalise("Go to Shelter\u202fE, 150\u202fm.")) == []        # typographic spaces
     assert layer.unknown_names("Go to West Shelter now.") == ["West Shelter"]
 
 

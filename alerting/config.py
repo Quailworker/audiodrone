@@ -9,6 +9,9 @@ LLM_TIMEOUT_S  Seconds the Nemotron layer may take per message before the templa
 SITE_MCP       Command that starts the site-data MCP server (stdio). Default: the local stand-in
                (alerting/sitedata_mcp.py). For Zetaris, the command or URL of its MCP server.
 SITE_FILE      JSON site file for the stand-in.
+
+The same variables can live in a private env file (KEY=VALUE lines), ALERTING_ENV or by default
+~/.config/audiodrone/alerting.env, so keys stay out of the repo. Real environment variables win.
 """
 import os
 import shlex
@@ -16,6 +19,20 @@ import sys
 from dataclasses import dataclass, field
 
 from alerting.sitedata import DEFAULT_SITE
+
+
+def _load_env_file():
+    path = os.path.expanduser(os.environ.get("ALERTING_ENV", "~/.config/audiodrone/alerting.env"))
+    if not os.path.isfile(path):
+        return
+    for line in open(path):
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
+
+
+_load_env_file()
 
 
 @dataclass

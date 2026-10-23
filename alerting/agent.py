@@ -18,6 +18,7 @@ import asyncio
 import json
 import re
 import time
+import unicodedata
 from contextlib import AsyncExitStack
 
 import numpy as np
@@ -51,6 +52,15 @@ def check_units(text, facts_by_unit):
         if not any(abs(float(v) - a) <= max(0.51, 0.02 * abs(a)) for a in pool):
             bad.append((float(v), kind))
     return bad
+
+
+SPACES = re.compile(r"[\u00a0\u2000-\u200b\u202f\u205f\u3000]")
+
+
+def normalise(text):
+    """Plain spaces and ASCII-compatible forms, so 'Shelter\u202fE' and '8\u202fs' check like the plain text."""
+    text = SPACES.sub(" ", unicodedata.normalize("NFKC", text or ""))
+    return re.sub(r"[\u2010-\u2015\u2212](?=\d)", "-", text)                  # typographic minus signs
 
 
 def numbers_in(text):
@@ -166,7 +176,7 @@ class NemotronLayer:
                 "clusters_hearing": s.n_clusters, "height_uncertainty_m": round(float(np.sqrt(s.P[2, 2])), 1)}
 
     # --- chat loop -----------------------------------------------------------------------
-    async def chat(self, user, tools=None, max_rounds=4, context_numbers=()):
+    async def chat(self, user, tools=None, max_rounds=6, context_numbers=()):
         """Run Nemotron with tools until it answers. Returns (answer, tool_log, allowed_numbers)."""
         msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
         specs = self.tool_specs(tools)
@@ -177,7 +187,7 @@ class NemotronLayer:
                 temperature=0.2), self.cfg.llm_timeout_s)
             m = r.choices[0].message
             if not m.tool_calls:
-                return (m.content or "").strip(), log, allowed
+                return normalise(m.content or "").strip(), log, allowed
             msgs.append({"role": "assistant", "content": m.content or "", "tool_calls": [
                 {"id": c.id, "type": "function", "function": {"name": c.function.name, "arguments": c.function.arguments}}
                 for c in m.tool_calls]})
@@ -194,7 +204,12 @@ class NemotronLayer:
                 _collect_numbers(res, allowed)
                 _collect_numbers(args, allowed)
                 msgs.append({"role": "tool", "tool_call_id": c.id, "content": json.dumps(res, default=float)[:3000]})
-        return "", log, allowed
+        # out of tool rounds: ask for the answer from what it has, with tools off
+        msgs.append({"role": "user", "content": "Answer now from the tool results above, without further tool calls."})
+        r = await asyncio.wait_for(asyncio.to_thread(
+            self.client.chat.completions.create, model=self.cfg.llm_model, messages=msgs, temperature=0.2),
+            self.cfg.llm_timeout_s)
+        return normalise(r.choices[0].message.content or "").strip(), log, allowed
 
     def _audit(self, kind, **kw):
         if self.log is not None:
@@ -266,9 +281,11 @@ class NemotronLayer:
         return [f for f in found if f.lower() not in known]
 
     async def answer(self, question):
-        """Operator question -> (answer or None, tool log). The current tracks and their danger zones are
-        fetched first and given as facts; the answer is rejected if it uses a number or a name the facts
-        and tool results do not support."""
+        """Operator question -> (answer or None, tool log, unverified). The current tracks and their danger
+        zones are fetched first and given as facts. Operators are trained users, so an answer is returned
+        even when it contains numbers or names the facts and tool results do not support (a sum such as
+        "85 people", or an invented value); those are listed in `unverified` for the display to flag.
+        Messages to the public (personalise) stay strict."""
         t0 = time.time()
         facts = {"tracks": [self._track_view(t) for t in self.core.latest],
                  "danger": [{"track_id": t, "sites": self._danger_view(t)["sites"]} for t in self.core.latest]}
@@ -277,9 +294,10 @@ class NemotronLayer:
             text, log, allowed = await self.chat(prompt, context_numbers=_collect_numbers(facts, []))
         except (asyncio.TimeoutError, Exception) as e:
             self._audit("answer_failed", question=question, error=f"{type(e).__name__}: {e}")
-            return None, []
+            return None, [], []
         bad = check_numbers(text, allowed)
         names = self.unknown_names(text)
         self._audit("answer", question=question, text=text, tools=log, unsupported_numbers=bad, unknown_names=names,
                     seconds=round(time.time() - t0, 2))
-        return (text if text and not bad and not names else None), log
+        unverified = [f"{n:g}" for n in bad] + names
+        return (text or None), log, unverified
