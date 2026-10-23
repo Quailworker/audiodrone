@@ -2,6 +2,7 @@
 
 Acoustic drone detection: a scenario simulator that renders what microphones hear while drones (and things that sound like them) fly past, and a CNN that detects drones in that audio frame by frame (10 ms frames).
 
+- **ARCHITECTURE.md** is the map of the whole system: the stages, the code and data flow between them, where it runs, and how each part was built.
 - **design.md** is the full design: theory, maths, decisions (D-01 to D-37), results (sections 5.9, 13.5).
 - **AGENTS.md** is a step-by-step checklist for setting up the test environment and checking the published models.
 - **NEXT_STEPS.md** is the to-do list: what to build next, in order, and how to start it on the desktop.
