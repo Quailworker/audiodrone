@@ -1,6 +1,7 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.9, 2026-10-23.
+- **Status:** draft v0.9.1, 2026-10-23.
+  - v0.9.1 records Joseph's decision: **all clusters are flat, on the ground** (D-30 adopted, D-07 superseded). Height is kept but coarse: it comes from several clusters together and is used to tell "on the ground" from "airborne", not as an exact number (D-38). Consequences: direction finding can use the cheap pairwise methods (flat ground clusters are immune to the ground echo), so it can run on the ESP32 (mode B); there is no single-cluster height clue, and very low drones are rated as "possible drone, unrated" (5.12.3).
   - v0.9 adds the **Phase 1 localisation results** (13.5): multi-cluster rendering, direction finding (incl. a new reflection-aware beamformer), the EKF tracker and their measured accuracy for tetrahedra vs flat clusters, pole vs ground and 100 vs 150 m spacing, plus the first real direction-finding check on the IDMT array recordings. Main findings: the ground echo breaks pairwise direction finding on tetrahedra (fixed by modelling it); the 100–860 Hz band is often masked, and steering on the drone's own comb lines up to 2 kHz cuts direction errors 2–5×; tetrahedra beat flat clusters; real azimuth accuracy is ~8.5° median, several times worse than assumed (F4).
   - v0.8.1 replaces the Raspberry Pi cluster computer with an **ESP32-S3** that sends packets (Joseph), D-37, section 9.6. Revises D-10: direction finding may run on the server when raw multichannel audio is sent. (Numbered v0.8.1 because v0.9 is reserved for the Phase 1 localisation results.)
   - v0.8 adds the alerting side (Joseph's idea: Nemotron as the brain for people, alerting nearby soldiers and civilians and predicting the danger area for early evacuation). Decisions D-34 (Nemotron as the communication layer; fixed-logic alarm path), D-35 (danger-zone prediction and tiered alerts, 13.3–13.4) and D-36 (tripwire clusters for warning time, 8.4).
@@ -107,7 +108,7 @@ SERVER                                                     [J] server + CNN
 | D-04 | Identify drone **type** with the CNN | [J] | open | D-02 | Adopted, revised by D-05 |
 | D-05 | Type must not rely on frequency alone; use whine/BPF ratio, rotor count, harmonic shape; needs real recordings | [C revises J] | derived | D-04 | Proposed |
 | D-06 | Microphones grouped in **clusters**, spread over the area | [J] | — | — | Adopted |
-| D-07 | Each cluster is a **4-mic regular tetrahedron** (originally 3 mics) | [J←C] | derived; simulated v0.9 | D-06 | **Under review (D-30).** Evidence v0.9 (13.5.4): tetrahedra beat flat clusters (direction 4.9–6.5° vs 12°, height 4.4–5.5 m vs 12.6 m, near-horizon elevation 3° vs 20°); needs the reflection-aware beamformer |
+| D-07 | Each cluster is a **4-mic regular tetrahedron** (originally 3 mics) | [J←C] | derived; simulated v0.9 | D-06 | **Superseded by D-30 (v0.9.1, Joseph).** The v0.9 evidence (13.5.4) favoured tetrahedra on height (4.4–5.5 m vs 12.6 m) and near-horizon elevation (3° vs 20°), but flat clusters match them on map position (8.8 vs 9.2 m), and Joseph chose to trade precise height (D-38) |
 | D-08 | Tetrahedron edge **20 cm**; direction finding uses frequencies **< 860 Hz** | [C] | derived; simulated v0.9 | D-07 | Proposed. Evidence v0.9 (13.5.2): 100–2000 Hz beats 100–860 Hz despite aliasing (masking matters more); 4 kHz audio is enough for < 860 Hz |
 | D-09 | Cluster ranges must **overlap substantially** (spacing ≈ range), not slightly | [C revises J] | derived | D-06 | Proposed |
 | D-10 | **Direction finding runs on the cluster**; server receives directions, not only spectrograms | [C revises J] | derived | D-06, D-07 | Proposed. **v0.8.1:** revised by D-37: in mode A (raw 4-channel audio streamed, phase kept) direction finding runs on the server; in mode B it can run on the ESP32. Evidence v0.9 (13.5.4): the pairwise methods that fit an ESP32 (~13 M multiply-adds/s) are the ones the ground echo breaks on tetrahedra; the reflection-aware beamformer (~620 M/s) needs the server, so mode A fits tetrahedra better |
@@ -130,13 +131,14 @@ SERVER                                                     [J] server + CNN
 | D-27 | Drone classes: **5–7" FPV, 7–12" electric, ~10"+ two-stroke petrol** | [J]; sound models [C] | estimate | D-18 | **Adopted** |
 | D-28 | Handling two-stroke drones vs ground engines: proposed 3 outputs, electric drone / engine / nothing | [C] proposal; [J] resolution | — | D-26, D-27 | **Resolved (v0.7):** alert on **every** engine sound; the D-32 rating marks low, slow engines as probably ground engines (chainsaw, mower) [J] |
 | D-29 | Data comes from a **scenario simulator**: mics at fixed positions, sources flying trajectories, propagation physics per mic, long clips covering whole passes | [J] idea; [C] physics | derived; not validated | D-17, D-24 | **Adopted** |
-| D-30 | Mic clusters **flat, on the ground surface**; height from overlapping clusters + Doppler in the EKF (instead of a tetrahedron) | [J] idea; [C] analysis | derived; simulated v0.9 | D-07, D-09, D-12, D-14 | Proposed. Evidence v0.9 (13.5.4): worse than tetrahedra; viable only with comb-guided direction finding (height 4.8 vs 3.2 m) and without the single-cluster height clue |
+| D-30 | Mic clusters **flat, on the ground surface**; height from overlapping clusters + Doppler in the EKF (instead of a tetrahedron) | [J] idea; [C] analysis | derived; simulated v0.9 | D-07, D-09, D-12, D-14 | **Adopted (v0.9.1, Joseph): all clusters flat, on the ground.** Evidence v0.9 (13.5.4): map position as good as tetrahedra (8.8 vs 9.2 m); height coarse (12.6 m whole band, 4.9 m with comb-guided direction finding); no single-cluster height clue |
 | D-31 | Field test protocol: drone passes at several distances with a flight log, plus no-drone and confuser recordings | [J] test; [C] protocol | — | D-25 | Proposed |
 | D-32 | **Drone-likelihood rating** after the CNN: every alert is scored from CNN probability × height × speed × persistence; **low and slow → probably not a drone** | [J] rule; [C] factors and thresholds | open: thresholds to tune | D-12, D-14, D-28, D-07/D-30 | **Adopted** (5.12) |
 | D-33 | Detector tuned for **recall**: drone thresholds near 0.5; release gate on recall (all Svanström drone clips detected, IDMT ≤ 50 m ≥ 95 %); false-alarm rate reported but not a gate | [J] intent; [C] numbers | — | D-25, D-32 | **Adopted** (5.12) |
 | D-34 | **Nemotron is the communication and reasoning layer** for people (alerts, advice, questions, summaries). The alarm path is **fixed logic**; Nemotron is never the only way an alert goes out | [J] Nemotron as the brain; [C] split | — | D-32, D-35 | **Adopted** (13.4) |
 | D-35 | **Danger zone** = closest-approach and arrival-time calculation along the Kalman track, widened by its uncertainty; **tiered alerts** (advisory / take cover / evacuate), evacuation approved by an operator unless time is too short | [J] early evacuation; [C] maths and tiers | derived | D-12, D-32, D-34 | **Adopted** (13.3, 13.4) |
 | D-36 | **Tripwire clusters** along approach routes, placed far enough out for a required warning time (distance = warning time × drone speed) | [J] early evacuation; [C] geometry | derived | D-06, D-09, D-35 | **Adopted** (8.4) |
+| D-38 | **Coarse height is enough:** height is used to tell ground sources from airborne drones (about 15 m and up), not as an exact number; it comes from two or more flat clusters in the EKF. Drones too low or too far to rate are reported as "possible drone, unrated" | [J] trade-off; [C] threshold | simulated (13.5.4) | D-30, D-32, D-35 | **Adopted** (v0.9.1) |
 | D-37 | **Cluster node = ESP32-S3** (no Raspberry Pi) with 4 TDM MEMS mics on one I²S bus, sending packets. **Mode B** (trigger, then send buffered audio) for deployment; **mode A** (stream raw 4-channel audio) for prototypes and small Wi-Fi sites | [J] ESP32 + packets; [C] modes, bandwidth | derived; estimates | D-06, D-07, D-10 | **Adopted** (9.6) |
 
 ---
@@ -803,7 +805,7 @@ el = atan(h / ρ)        h = 10 m, ρ = 100 m  →  el ≈ 5.7°
 | **Tetrahedron (D-07)** | σ_el ≈ σ_u / cos(el) ≈ 0.02 rad ≈ 1.1° | Yes: about 5 standard deviations |
 | Flat ground cluster (D-30) | σ_el ≈ σ_u / sin(el) ≈ 0.02 / 0.10 ≈ 0.2 rad ≈ 11° | No |
 
-So the single-cluster "low" clue **needs the tetrahedron**. With flat clusters (D-30), height comes only from two or more clusters plus Doppler in the EKF. This is an input to the D-07 vs D-30 choice (open question 29). **"Slow" always needs range**, from two clusters, or roughly from Doppler or level.
+So the single-cluster "low" clue **needs the tetrahedron**. With flat clusters (D-30), height comes only from two or more clusters plus Doppler in the EKF. This was an input to the D-07 vs D-30 choice (open question 29). **v0.9.1: flat clusters were chosen (D-30, D-38),** so f_height comes only from the EKF (two or more clusters hearing the drone, about 5 m height error with comb-guided direction finding, 13.5.3). An alert with no EKF height is rated "possible drone, unrated" rather than "probably ground", and very low drones (below ~10 m) may be rated ground-like. **"Slow" always needs range**, from two clusters, or roughly from Doppler or level.
 
 #### 5.12.4 Recall-first tuning (D-33)
 
@@ -958,7 +960,7 @@ Not suitable: parabolic dishes and shotgun mics. A dish only helps when its diam
 
 **Joseph's question [J]:** since velocity can be estimated, is a tetrahedron needed? He prefers to keep the microphones on one plane, or at least on the ground surface, even if not all at exactly the same level.
 
-**Answer [C]:** no, the tetrahedron is not strictly necessary. Flat clusters on the ground can give height. Their cost is poor elevation accuracy for drones far away and low in the sky; overlapping clusters and Doppler inside the Kalman filter recover most of that. **Status: proposed. The scenario simulator (14.6) will compare the layouts before anything is built.**
+**Answer [C]:** no, the tetrahedron is not strictly necessary. Flat clusters on the ground can give height. Their cost is poor elevation accuracy for drones far away and low in the sky; overlapping clusters and Doppler inside the Kalman filter recover most of that. **Status: adopted (D-30, v0.9.1).** The scenario simulator compared the layouts (13.5): flat clusters match tetrahedra on map position but give only coarse height; Joseph chose flat clusters and coarse height (D-38).
 
 **What a flat cluster measures** *(derived)*. A 4-mic square of half-side d at the ground, vertices (±d, ±d, 0):
 ```
@@ -1811,7 +1813,9 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 26. Does the electric head's reliance on > 1 kHz (5.11.2) cost range or noise robustness? Test band-limited inputs and real tonal negatives above 1 kHz.
 27. Measure real drone source levels (L_src at 1 m) from the IDMT recordings and GPS distances, to separate "quiet source" from "small G" in 5.11.3.
 28. Build the D-32 rating in the scenario simulator (true height and speed known) and tune its thresholds; report the false-alarm reduction and any recall lost.
-29. Choose tetrahedra (D-07) or flat ground clusters (D-30): D-32's single-cluster height clue only works with the tetrahedron (5.12.3). **Evidence v0.9 (13.5.4): tetrahedra are better, including near the horizon (elevation error 3° vs 20°); Joseph to decide.**
+29. ~~Choose tetrahedra (D-07) or flat ground clusters (D-30).~~ Resolved v0.9.1: **all flat, on the ground** (D-30), with coarse height (D-38) [J].
+42. Map-position (2D) tracking for flat clusters: their tracked share is lower than the tetrahedra's (37 % vs 54 %), probably because poor elevation hurts the 3D gating and track birth; test a tracker that weights elevation down or tracks the ground position first.
+43. Flat-cluster layout: the v0.9 simulation used a 20 cm triangle with a centre mic. Choose the final geometry (triangle + centre, or a 4-mic square) and size for the ESP32 node, now that the direction-finding band can extend to ~2 kHz (13.5.2).
 30. Which Nemotron model, and how it is served: confirm Meterless Nightshift can serve it locally, otherwise NVIDIA's own serving (D-34).
 31. Where personnel, unit and shelter locations come from, and who may access them (Zetaris sources and access control; D-34).
 32. Delivery channels (phone, SMS, sirens, ATAK / Cursor-on-Target) and who may approve an evacuation (D-35).
