@@ -176,6 +176,8 @@ ollama pull nemotron-mini                                   # stand-in for Meter
 .venv/bin/python -m alerting.eval_rating --method bf_comb2k       # rating: drone vs false tracks
 ```
 
+**Current setup:** Nemotron 3.5 Lightning 30B-A3B runs on Anna's PC under Nightshift's bundled llama.cpp server (`scripts/two_pc/run_nemotron_anna.cmd`). This desktop reaches it through an SSH tunnel (systemd user unit `nightshift-tunnel`). The endpoint and key are in `~/.config/audiodrone/alerting.env`, which is not in git and is read automatically by `alerting/config.py`.
+
 **Use the real services:**
 - **Meterless Nightshift:** set `LLM_BASE_URL=http://<nightshift-pc>:8088/v1`, `LLM_API_KEY=<key>` and `LLM_MODEL=<Nemotron model name in Nightshift>`.
 - **Zetaris:** set `SITE_MCP="<command that starts its MCP server>"`, exposing the tools in `alerting/sitedata_mcp.py`.

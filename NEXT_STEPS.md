@@ -63,10 +63,10 @@ Uses the Phase 1 tracks. Instructions to be written after Phase 1 reports.
 **Built:** the Nemotron layer (tool calling; number, unit, name and time checks) and the site-data MCP contract.
 
 **Still to connect:**
-- **Meterless Nightshift:** install it on Anna's Windows PC, which has the NVIDIA GPU it needs; there is no Linux build. Then set `LLM_BASE_URL`.
+- **Meterless Nightshift:** installed on Anna's PC (2026-10-24). Nemotron 3.5 Lightning is served by its bundled llama.cpp server through an SSH tunnel. To use Nightshift's own routing instead, press "Start runtime" in its app.
 - **Zetaris:** needs access, i.e. an MCP endpoint or SQL to wrap; then set `SITE_MCP`.
 
-Until then, Nemotron Mini on Ollama and a local MCP server stand in.
+A local MCP server stands in for Zetaris until then; Nemotron Mini on Ollama is the LLM fallback.
 
 Original plan, kept for reference:
 

@@ -1614,7 +1614,7 @@ Configuration: `alerting/config.py`. `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODE
 
 | Tool | What it is (checked 2026-10-23) | Status here |
 |---|---|---|
-| **Meterless Nightshift** | Local AI server for Mac, Windows (NVIDIA GPU required) and DGX Spark. It serves an OpenAI-compatible API on the LAN (e.g. `http://<pc>:8088/v1`, key `rt-local`) and lists local Nemotron models (Nemotron 3.5 Lightning, Nemotron 3 Nano 30B-A3B) | **Not installed.** There is no Linux desktop build, so it cannot run on the Quail desktop. Anna's Windows PC (RTX 3080) qualifies, but it is a desktop installer on a shared PC, so Joseph should install it. Until then, Ollama serves **Nemotron Mini** (4.2B, NVIDIA licence) behind the same API |
+| **Meterless Nightshift** | Local AI server for Mac, Windows (NVIDIA GPU required) and DGX Spark. It serves an OpenAI-compatible API on the LAN (e.g. `http://<pc>:8088/v1`, key `rt-local`) and lists local Nemotron models (Nemotron 3.5 Lightning, Nemotron 3 Nano 30B-A3B) | **Installed on Anna's PC (2026-10-24)**, v1.2.3 MSI, checksum verified. Its Linux build is ARM64-only (DGX Spark), so it cannot run on the x86-64 desktop. Starting Nightshift's own runtime needs a click in its app, so **Nemotron 3.5 Lightning 30B-A3B** (Q4_0 GGUF, 18.9 GB, SHA-256 verified) is served by **Nightshift's bundled llama.cpp server** (`scripts/two_pc/run_nemotron_anna.cmd`):<br>• localhost only, with an API key;<br>• MoE expert weights in RAM, ~3.9 GB of VRAM;<br>• a hidden scheduled task.<br>The desktop reaches it through an SSH tunnel (`nightshift-tunnel` user unit: 18089 → llama-server, 18088 → Nightshift's own API). The key is kept in `~/.config/audiodrone/alerting.env`, outside git. **Nemotron Mini** on Ollama remains the fallback |
 | **Zetaris** | Commercial data-federation platform; no public package or MCP server found | **Not connected.** The MCP tool contract is defined (13.6.1), and a stand-in server implements it over `alerting/example_site.json` (made-up site). Connecting needs Zetaris access: an MCP endpoint, or a SQL endpoint to wrap |
 
 #### 13.6.3 Tiers as built
@@ -1697,7 +1697,17 @@ The core has always sent its alert first. Nemotron writes follow-ups and answers
 | Telling villagers to walk 3 min to a shelter with the drone 4 s away | Yes, time gate (added after the first runs; the core already had it) |
 | A wrong conclusion from correct numbers ("closest site is the Compound, 1007 m" when the Village was 780 m) | **No.** Number and name checks cannot catch reasoning errors |
 
-**Implication:** with a 4B model, use Nemotron for wording and Q&A, never for decisions. That is already the design (D-34). A larger Nemotron (e.g. Nemotron 3 Nano 30B-A3B through Nightshift) should reduce rejections and reasoning errors; measure that once Nightshift is installed (open question 45).
+**Implication:** with a 4B model, use Nemotron for wording and Q&A, never for decisions. That is already the design (D-34).
+
+**Nemotron 3.5 Lightning 30B-A3B** (Anna's RTX 3080, experts in RAM; 2.5–10 s per call warm, ~45 tokens/s):
+- **Follow-ups:** correct, and accepted once the checks normalise Unicode spaces and dashes. An example: "Go to Shelter E, 150 m away (about 2 min on foot). Drone arrives in 118 s."
+- **Tool use:** proper multi-step research, e.g. sites → people in zone → shelters → nearest shelter per group. It needed up to 6 tool rounds (4 were too few), plus a final no-tools answer.
+- **A real insight the core does not model:** Shelter E holds 80 people, but the two village groups total 85.
+- **Reasoning slips remain.** It read a position (1000 m east) as a direction of travel, and called a "possible" track "likely".
+
+**Change:** messages to the public stay strict (dropped on any unsupported number or name). **Operator answers are shown with unsupported numbers flagged** ("[unverified: 85]"), because a sum like 35 + 50 = 85 is legitimate analysis that a strict check would throw away.
+
+**Next:** add shelter capacity to the core's evacuation plan (open question 47).
 
 ---
 
@@ -1930,7 +1940,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 27. Measure real drone source levels (L_src at 1 m) from the IDMT recordings and GPS distances, to separate "quiet source" from "small G" in 5.11.3.
 28. Build the D-32 rating in the scenario simulator (true height and speed known) and tune its thresholds; report the false-alarm reduction and any recall lost. **v0.9.1: built (`alerting/rating.py`) and measured (13.6.5):** "likely" covers 64–76 % of drone track time and 8–12 % of false track time; thresholds not yet tuned.
 29. ~~Choose tetrahedra (D-07) or flat ground clusters (D-30).~~ Resolved v0.9.1: **all flat, on the ground** (D-30), with coarse height (D-38) [J].
-30. Which Nemotron model, and how it is served: confirm Meterless Nightshift can serve it locally, otherwise NVIDIA's own serving (D-34). **v0.9.1:** Nightshift has a Windows build (NVIDIA GPU) that serves Nemotron 3 Nano 30B-A3B / Nemotron 3.5 Lightning over an OpenAI-compatible API, but there is no Linux desktop build. Install it on Anna's PC (Joseph) and set `LLM_BASE_URL`; Nemotron Mini on Ollama is the stand-in (13.6.2).
+30. ~~Which Nemotron model, and how it is served.~~ v0.9.1: Nightshift installed on Anna's PC; Nemotron 3.5 Lightning 30B-A3B served by its bundled llama.cpp server, reached through an SSH tunnel (13.6.2). Still open: starting Nightshift's own runtime (one click in its app) to use its routing instead.
 31. Where personnel, unit and shelter locations come from, and who may access them (Zetaris sources and access control; D-34). **v0.9.1:** the MCP tool contract is defined and implemented by a stand-in (13.6.1); needs Zetaris access (MCP endpoint or SQL to wrap) to connect.
 32. Delivery channels (phone, SMS, sirens, ATAK / Cursor-on-Target) and who may approve an evacuation (D-35).
 33. Likely approach routes, expected drone speeds and the warning time required: these set the tripwire ring distance and sectors (D-36).
@@ -1945,8 +1955,9 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 42. Map-position (2D) tracking for flat clusters: their tracked share is lower than the tetrahedra's (37 % vs 54 %), probably because poor elevation hurts the 3D gating and track birth; test a tracker that weights elevation down or tracks the ground position first.
 43. Flat-cluster layout: the v0.9 simulation used a 20 cm triangle with a centre mic. Choose the final geometry (triangle + centre, or a 4-mic square) and size for the ESP32 node, now that the direction-finding band can extend to ~2 kHz (13.5.2).
 44. Reject implausible false tracks: they sit at a median 200–285 m with uncertain height (13.6.5). Test a height ceiling or a height-uncertainty penalty in the rating.
-45. Measure the Nemotron layer with a larger model through Nightshift (Nemotron 3 Nano 30B-A3B): rejection rate and reasoning errors vs Nemotron Mini (13.6.6).
+45. ~~Measure the Nemotron layer with a larger model.~~ Done v0.9.1 with Nemotron 3.5 Lightning (13.6.6): correct follow-ups, real multi-step tool use, remaining reasoning slips.
 46. Tripwire clusters (D-36) for warning time: the 100 m field gives 5–20 s, enough only for take cover in place.
+47. Add shelter capacity to the core's evacuation plan (Nemotron Lightning spotted 85 people for an 80-place shelter, 13.6.6).
 
 ---
 

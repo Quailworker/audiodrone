@@ -93,8 +93,10 @@ async def _run(stem, method, cfg, use_llm, out_dir, quiet, auto_approve_s):
                     core.delivery.send(r)
         answer = None
         if agent is not None and core.latest:
-            answer, _ = await agent.answer("Summarise for the operator in under 60 words: which tracks exist, "
-                                           "how likely each is a drone, and which site is threatened and when.")
+            answer, _, unverified = await agent.answer("Summarise for the operator in under 60 words: which tracks exist, "
+                                                       "how likely each is a drone, and which site is threatened and when.")
+            if answer and unverified:
+                answer += f" [unverified: {', '.join(unverified)}]"
     finally:
         if agent is not None:
             await agent.__aexit__(None, None, None)
