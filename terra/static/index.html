@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UAE Acoustic Range</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+<script type="importmap">
+{"imports": {"three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+             "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">UAE Acoustic Range <span class="dim">· drone detection on real terrain</span></div>
+  <div class="area" id="areaName">No area loaded</div>
+  <div class="status" id="status">Pick an area to start</div>
+</header>
+
+<aside class="side">
+  <section>
+    <h2><span class="n">1</span> Area</h2>
+    <div class="overview"><canvas id="overview" width="300" height="250" aria-label="Map of the UAE. Click to choose an area."></canvas></div>
+    <div class="row">
+      <select id="example" aria-label="Example scenario"><option value="">Example scenarios (ready to run)…</option></select>
+    </div>
+    <div class="row">
+      <select id="preset" aria-label="Preset area"><option value="">Preset areas…</option></select>
+    </div>
+    <div class="row">
+      <label for="areaSize">Area</label>
+      <select id="areaSize"><option value="1000">2 km</option><option value="2000">4 km</option><option value="3000" selected>6 km</option><option value="4000">8 km</option><option value="6000">12 km</option></select>
+      <button id="loadArea" class="primary">Load area</button>
+    </div>
+    <p class="hint" id="pick">Click the map or choose a preset.</p>
+  </section>
+
+  <section>
+    <h2><span class="n">2</span> Place</h2>
+    <div class="tools" role="group" aria-label="Placement tool">
+      <button data-tool="orbit" aria-pressed="true" title="Rotate and zoom the view">View</button>
+      <button data-tool="cluster" aria-pressed="false" title="Click the ground to place one mic cluster">Cluster</button>
+      <button data-tool="ring" aria-pressed="false" title="Click to place 4 clusters in a square plus one in the middle">Square of 5</button>
+      <button data-tool="site" aria-pressed="false" title="Click to place a protected site">Site</button>
+      <button data-tool="path" aria-pressed="false" title="Click waypoints for a drone flight">Flight</button>
+    </div>
+    <div class="row">
+      <label for="spacing">Spacing</label><input id="spacing" type="number" value="100" min="20" max="2000" step="10"><span class="unit">m</span>
+      <label for="siteR">Site radius</label><input id="siteR" type="number" value="60" min="10" max="1000" step="10"><span class="unit">m</span>
+    </div>
+    <div class="row">
+      <label for="mount">Mount</label>
+      <select id="mount"><option value="ground">On the ground (3 cm)</option><option value="pole">Pole (2 m)</option></select>
+    </div>
+    <div class="row"><button id="newFlight">New flight</button><button id="clearAll" class="ghost">Clear all</button></div>
+    <ul class="items" id="items"></ul>
+  </section>
+
+  <section>
+    <h2><span class="n">3</span> Drone</h2>
+    <div class="row"><label for="cls">Type</label><select id="cls"></select></div>
+    <div class="row">
+      <label for="agl">Height</label><input id="agl" type="number" value="60" min="5" max="600" step="5"><span class="unit">m</span>
+      <label for="speed">Speed</label><input id="speed" type="number" value="15" min="1" max="60" step="1"><span class="unit">m/s</span>
+    </div>
+    <div class="row"><label for="altMode">Altitude</label>
+      <select id="altMode"><option value="agl">Follows the terrain</option><option value="fixed">Fixed (above the first waypoint)</option></select></div>
+    <p class="hint">Settings apply to the flight being drawn and to new flights.</p>
+  </section>
+
+  <section>
+    <h2><span class="n">4</span> Conditions</h2>
+    <div class="row"><label for="ambient">Ambient</label><select id="ambient"></select></div>
+    <div class="row">
+      <label for="temp">Air</label><input id="temp" type="number" value="35" min="0" max="50"><span class="unit">°C</span>
+      <label for="rh">Humidity</label><input id="rh" type="number" value="30" min="5" max="100"><span class="unit">%</span>
+    </div>
+    <div class="row"><label class="check"><input id="terrainOn" type="checkbox" checked> Model the terrain (heights, slope echo, hills blocking sound)</label></div>
+    <div class="row"><label for="seed">Seed</label><input id="seed" type="number" value="1" min="1"><span class="hint">Same seed, same drone sound.</span></div>
+  </section>
+
+  <section>
+    <button id="run" class="run" disabled>Run simulation</button>
+    <ol class="log" id="log"></ol>
+    <div class="row"><select id="runs" aria-label="Previous runs"><option value="">Previous runs…</option></select></div>
+  </section>
+</aside>
+
+<main class="stage">
+  <div id="view" class="view"></div>
+  <div class="viewtools">
+    <label for="exag">Height ×</label><input id="exag" type="range" min="1" max="4" step="0.5" value="1.5">
+    <button id="topView">Top</button><button id="tiltView">3D</button><button id="focus" title="Zoom to the clusters, sites and flights">Focus</button>
+    <label class="check"><input id="showLos" type="checkbox" checked> Line of sight</label>
+    <label class="check"><input id="showRays" type="checkbox" checked> Bearings</label>
+  </div>
+  <div class="legend">
+    <span><i class="sw cl"></i>Cluster</span><span><i class="sw hear"></i>CNN hears drone</span>
+    <span><i class="sw truth"></i>True drone</span><span><i class="sw track"></i>Tracked position</span>
+    <span><i class="sw hear" style="height:3px"></i>Bearing</span><span><i class="sw los"></i>Clear line</span><span><i class="sw blk"></i>Blocked by terrain</span>
+  </div>
+</main>
+
+<section class="bottom" id="bottom" hidden>
+  <div class="transport">
+    <button id="play" class="primary">Play</button>
+    <div class="speeds" role="group" aria-label="Playback speed">
+      <button data-speed="1" aria-pressed="false">1×</button><button data-speed="4" aria-pressed="true">4×</button><button data-speed="10" aria-pressed="false">10×</button>
+    </div>
+    <span class="clock" id="clock">0.0 s</span>
+    <div class="scrub"><input id="scrub" type="range" min="0" max="100" step="0.1" value="0" aria-label="Time"><div class="ticks" id="ticks"></div></div>
+    <span class="nowstat" id="nowstat"></span>
+  </div>
+  <div class="results">
+    <div class="summary" id="summary"></div>
+    <div class="clusters"><table id="clusterTable"></table></div>
+    <ol class="feed" id="feed"></ol>
+  </div>
+</section>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

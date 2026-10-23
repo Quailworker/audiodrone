@@ -8,3 +8,4 @@ models/
 analysis/out/
 logs/
 .pytest_cache/
+runs_terra/

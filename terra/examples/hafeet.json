@@ -1,0 +1,63 @@
+{
+ "origin": [
+  24.06,
+  55.78
+ ],
+ "half_m": 4000,
+ "terrain": true,
+ "mount": "ground",
+ "clusters": [
+  [
+   2950,
+   -50
+  ],
+  [
+   3050,
+   -50
+  ],
+  [
+   3050,
+   50
+  ],
+  [
+   2950,
+   50
+  ],
+  [
+   3000,
+   0
+  ]
+ ],
+ "sites": [
+  {
+   "name": "Plain camp",
+   "x": 3000,
+   "y": 0,
+   "radius_m": 60
+  }
+ ],
+ "drones": [
+  {
+   "cls": "mid",
+   "waypoints": [
+    [
+     -500,
+     0
+    ],
+    [
+     3000,
+     0
+    ]
+   ],
+   "agl": 60,
+   "speed": 20,
+   "alt_mode": "agl"
+  }
+ ],
+ "ambient": "desert",
+ "temp_c": 35,
+ "rh": 30,
+ "seed": 3,
+ "area_name": "Jebel Hafeet, Al Ain",
+ "title": "Over the ridge to a camp on the plain (Jebel Hafeet)"
+}

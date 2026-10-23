@@ -1,0 +1,2 @@
+# UAE terrain tool (terra/): DEM reading. starlette and uvicorn come with the alerting requirements' mcp.
+rasterio==1.4.3

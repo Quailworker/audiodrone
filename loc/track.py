@@ -15,6 +15,10 @@ Association: each cluster gives up to two candidate directions per frame. Global
 the Mahalanobis distance with a chi-square gate (2 dof). Unassigned candidates from >= 2 clusters in the
 same frame start a track from the closest point between two rays. Tracks are dropped after `max_miss_s`
 without an update.
+
+Ground: flat at z = 0 by default. Over terrain (terra/), `ground(x, y)` gives the ground height in the
+same frame; births below it are refused and tracks are kept above it. Births must lie within `birth_range`
+of the centroid of the clusters.
 """
 import itertools
 
@@ -39,8 +43,11 @@ class Track:
 
 class Tracker:
     def __init__(self, centres, flat, dt=0.1, q_acc=6.0, sigma_u=0.02, sin_floor=0.05, max_miss_s=3.0,
-                 gate=GATE_CHI2, emission_correction=True):
+                 gate=GATE_CHI2, emission_correction=True, ground=None, birth_range=1500.0):
         self.c = np.asarray(centres, float)
+        self.ground = ground or (lambda x, y: 0.0)
+        self.birth_range = birth_range
+        self.c_mid = self.c[:, :2].mean(0) if ground is not None else np.zeros(2)
         self.flat = flat
         self.dt, self.q_acc, self.sigma_u = dt, q_acc, sigma_u
         self.sin_floor, self.max_miss, self.gate = sin_floor, max_miss_s, gate
@@ -116,7 +123,7 @@ class Tracker:
         self.tracks = [tr for tr in self.tracks if t - tr.t_last <= self.max_miss]
         self.merge()
         for tr in self.tracks:
-            tr.s[2] = max(tr.s[2], 0.0)          # nothing flies below the ground
+            tr.s[2] = max(tr.s[2], self.ground(tr.s[0], tr.s[1]))     # nothing flies below the ground
         return self.tracks
 
     def merge(self, dist=10.0):
@@ -142,7 +149,7 @@ class Tracker:
             if k1 == k2:
                 continue
             p, gap, ang = closest_point(self.c[k1], z1, self.c[k2], z2)
-            if p is None or p[2] < 0 or np.linalg.norm(p[:2]) > 1500:
+            if p is None or p[2] < self.ground(p[0], p[1]) or np.linalg.norm(p[:2] - self.c_mid) > self.birth_range:
                 continue
             rng = min(np.linalg.norm(p - self.c[k1]), np.linalg.norm(p - self.c[k2]))
             if gap > 3.0 + 0.05 * rng or ang < np.radians(5):
