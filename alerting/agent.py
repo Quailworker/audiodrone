@@ -98,6 +98,24 @@ def _collect_numbers(obj, out):
     return out
 
 
+def facts_answer(facts):
+    """Fallback operator answer, worded by fixed code from the facts (every number is a system number)."""
+    if not facts["tracks"]:
+        return "[system facts, no model answer] No drone tracks at the moment."
+    danger = {d["track_id"]: d["sites"] for d in facts["danger"]}
+    parts = []
+    for tr in facts["tracks"]:
+        s = (f"track {tr['track_id']}: {tr['rating']}, {tr['height_m']} m high, {tr['speed_m_s']} m/s, "
+             f"at {tr['x_east_m']} m east {tr['y_north_m']} m north")
+        hit = [x for x in danger.get(tr["track_id"], []) if x["threatened"]]
+        if hit:
+            s += "; heading for " + ", ".join(
+                f"{x['site']} (arrives in {x['seconds_to_arrival']} s)" if x["seconds_to_arrival"] is not None
+                else f"{x['site']} (passes {x['closest_pass_m']} m away)" for x in hit)
+        parts.append(s)
+    return "[system facts, no model answer] " + "; ".join(parts) + "."
+
+
 class NemotronLayer:
     def __init__(self, core, cfg: Config | None = None, log=None):
         self.core = core
@@ -176,15 +194,23 @@ class NemotronLayer:
                 "clusters_hearing": s.n_clusters, "height_uncertainty_m": round(float(np.sqrt(s.P[2, 2])), 1)}
 
     # --- chat loop -----------------------------------------------------------------------
-    async def chat(self, user, tools=None, max_rounds=6, context_numbers=()):
-        """Run Nemotron with tools until it answers. Returns (answer, tool_log, allowed_numbers)."""
+    async def _complete(self, deadline, **kw):
+        """One model call, bounded by llm_timeout_s, the overall deadline and llm_max_tokens."""
+        left = self.cfg.llm_timeout_s if deadline is None else min(self.cfg.llm_timeout_s, deadline - time.time())
+        if left <= 0:
+            raise TimeoutError("deadline passed")
+        return await asyncio.wait_for(asyncio.to_thread(
+            self.client.chat.completions.create, model=self.cfg.llm_model, temperature=0.2,
+            max_tokens=self.cfg.llm_max_tokens, **kw), left)
+
+    async def chat(self, user, tools=None, max_rounds=6, context_numbers=(), deadline=None):
+        """Run Nemotron with tools until it answers. Returns (answer, tool_log, allowed_numbers).
+        deadline: wall-clock time (time.time()) after which no further call is started or awaited."""
         msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
         specs = self.tool_specs(tools)
         log, allowed = [], list(context_numbers)
         for _ in range(max_rounds):
-            r = await asyncio.wait_for(asyncio.to_thread(
-                self.client.chat.completions.create, model=self.cfg.llm_model, messages=msgs, tools=specs or None,
-                temperature=0.2), self.cfg.llm_timeout_s)
+            r = await self._complete(deadline, messages=msgs, tools=specs or None)
             m = r.choices[0].message
             if not m.tool_calls:
                 return normalise(m.content or "").strip(), log, allowed
@@ -206,9 +232,7 @@ class NemotronLayer:
                 msgs.append({"role": "tool", "tool_call_id": c.id, "content": json.dumps(res, default=float)[:3000]})
         # out of tool rounds: ask for the answer from what it has, with tools off
         msgs.append({"role": "user", "content": "Answer now from the tool results above, without further tool calls."})
-        r = await asyncio.wait_for(asyncio.to_thread(
-            self.client.chat.completions.create, model=self.cfg.llm_model, messages=msgs, temperature=0.2),
-            self.cfg.llm_timeout_s)
+        r = await self._complete(deadline, messages=msgs)
         return normalise(r.choices[0].message.content or "").strip(), log, allowed
 
     def _audit(self, kind, **kw):
@@ -285,16 +309,22 @@ class NemotronLayer:
         zones are fetched first and given as facts. Operators are trained users, so an answer is returned
         even when it contains numbers or names the facts and tool results do not support (a sum such as
         "85 people", or an invented value); those are listed in `unverified` for the display to flag.
-        Messages to the public (personalise) stay strict."""
+        Messages to the public (personalise) stay strict.
+
+        The facts already answer most questions, so only 3 tool rounds are allowed, and the whole answer has
+        answer_deadline_s. If the model fails or runs out of time, the answer is the facts themselves, worded
+        by fixed code (`facts_answer`), marked "[system facts, no model answer]"."""
         t0 = time.time()
         facts = {"tracks": [self._track_view(t) for t in self.core.latest],
                  "danger": [{"track_id": t, "sites": self._danger_view(t)["sites"]} for t in self.core.latest]}
         prompt = f"Facts (current system state): {json.dumps(facts)}\nOperator question: {question}\nAnswer from the facts only."
         try:
-            text, log, allowed = await self.chat(prompt, context_numbers=_collect_numbers(facts, []))
+            text, log, allowed = await self.chat(prompt, max_rounds=3, context_numbers=_collect_numbers(facts, []),
+                                                 deadline=t0 + self.cfg.answer_deadline_s)
         except (asyncio.TimeoutError, Exception) as e:
-            self._audit("answer_failed", question=question, error=f"{type(e).__name__}: {e}")
-            return None, [], []
+            self._audit("answer_failed", question=question, error=f"{type(e).__name__}: {e}",
+                        seconds=round(time.time() - t0, 2))
+            return facts_answer(facts), [], []
         bad = check_numbers(text, allowed)
         names = self.unknown_names(text)
         self._audit("answer", question=question, text=text, tools=log, unsupported_numbers=bad, unknown_names=names,

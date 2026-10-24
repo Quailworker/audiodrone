@@ -9,6 +9,11 @@ scenes; tracking is reported for single- and two-drone scenes separately.
 Tracking uses "oracle detection": a cluster contributes a direction in a frame when the drone is audible
 there by the label rule and the direction's coherence passes the method's gate. That isolates
 localisation from detection errors (the CNN's own recall is ~92 % in sim, design 5.9).
+
+A tracking method may carry options after colons, e.g. "bf_trk:real:dop":
+  real  the trigger is the frequency tracker's own tone at that cluster (loc/freqtrack.py, .freq.npz),
+        not the truth: with bf_trk (tracker-guided beamformer) nothing in the chain uses the truth
+  dop   Doppler: the tracked tones' pitches go into the Kalman filter (loc/track.py pitch_update)
 """
 import argparse
 import json
@@ -123,17 +128,25 @@ def direction_summary(df, methods):
 
 def track_scene(args):
     stem, method, sigma_u = args
+    doa_m, *opts = method.split(":")
     meta, truth, doa = load_scene(stem)
-    if doa is None or f"{method}/c0/u" not in doa:
+    if doa is None or f"{doa_m}/c0/u" not in doa:
         return None
     tf = truth["frame_t"]
     centres = np.asarray(meta["centres"])
     K = len(centres)
-    gate = COH_GATE.get(method.split("_")[0], 0.2)
+    gate = COH_GATE.get(doa_m.split("_")[0], 0.2)
     aud = np.stack([audible(truth, meta, k) for k in range(K)])                  # (K, F)
-    ok = aud & np.stack([doa[f"{method}/c{k}/coh"].astype(float) >= gate for k in range(K)])
-    meas = [[(k, doa[f"{method}/c{k}/u"][i].astype(float)) for k in range(K) if ok[k, i]] for i in range(len(tf))]
-    res = run_tracker(tf, meas, centres, flat=meta["cluster"] == "flat", sigma_u=sigma_u)
+    fr = dict(np.load(stem + ".freq.npz")) if ("real" in opts or "dop" in opts) else None
+    trig = np.stack([np.isfinite(fr[f"c{k}/f0"][:, 0]) for k in range(K)]) if "real" in opts else aud
+    ok = trig & np.stack([doa[f"{doa_m}/c{k}/coh"].astype(float) >= gate for k in range(K)])
+    meas = [[(k, doa[f"{doa_m}/c{k}/u"][i].astype(float)) for k in range(K) if ok[k, i]] for i in range(len(tf))]
+    freqs = None
+    if "dop" in opts:
+        pitch = [np.where(np.isfinite(fr[f"c{k}/f0_fine"]), fr[f"c{k}/f0_fine"], fr[f"c{k}/f0"]).astype(float)
+                 for k in range(K)]
+        freqs = [{k: [f for f in pitch[k][i] if np.isfinite(f)] for k in range(K)} for i in range(len(tf))]
+    res = run_tracker(tf, meas, centres, flat=meta["cluster"] == "flat", sigma_u=sigma_u, freqs_per_frame=freqs)
     n_d = len(drone_cats(meta))
     P = [interp_path(truth[f"d{i}/t"], truth[f"d{i}/p"], tf) for i in range(n_d)]
     V = [interp_path(truth[f"d{i}/t"], truth[f"d{i}/v"], tf) for i in range(n_d)]
@@ -158,7 +171,7 @@ def track_scene(args):
                     row.update(est_x=float(s[0]), est_y=float(s[1]), est_z=float(s[2]),
                                pos_err=float(d[j]), h_err=float(s[2] - P[i][f][2]),
                                horiz_err=float(np.hypot(*(s[:2] - P[i][f][:2]))),
-                               vel_err=float(np.linalg.norm(s[3:] - V[i][f])), speed_est=float(np.linalg.norm(s[3:])),
+                               vel_err=float(np.linalg.norm(s[3:6] - V[i][f])), speed_est=float(np.linalg.norm(s[3:6])),
                                sd_pos=float(np.sqrt(confirmed[j][2][:3].sum())))
             rows.append(row)
     df = pd.DataFrame(rows)
@@ -236,12 +249,12 @@ def main():
         summary[cfg] = {"direction": ds, "tracking": {}}
         tracks = {}
         for m in a.track_methods:
-            sig = sigma_from(dirdf, m)
+            sig = sigma_from(dirdf, m.split(":")[0])
             if sig is None:
                 continue
             with ProcessPoolExecutor(a.workers) as ex:
                 tdf = pd.concat([d for d in ex.map(track_scene, [(s, m, sig) for s in stems]) if d is not None], ignore_index=True)
-            tdf.to_pickle(frames_dir / f"{cfg}_track_{m}.pkl")
+            tdf.to_pickle(frames_dir / f"{cfg}_track_{m.replace(':', '+')}.pkl")
             tracks[m] = tdf
             summary[cfg]["tracking"][m] = {"sigma_u": sig, "scenes": int(tdf.scene.nunique()), **track_summary(tdf)}
             if m != "bf" and "bf" in tracks and tdf.scene.nunique() < tracks["bf"].scene.nunique():

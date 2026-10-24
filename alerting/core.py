@@ -39,8 +39,8 @@ OPERATORS = "operators"
 @dataclass
 class TrackSnapshot:
     id: int
-    state: np.ndarray             # x, y, z, vx, vy, vz (m, m/s)
-    P: np.ndarray                 # 6x6 covariance
+    state: np.ndarray             # x, y, z, vx, vy, vz (m, m/s); the tracker appends ln f0, d ln f0/dt (unused here)
+    P: np.ndarray                 # covariance, at least 6x6 (8x8 from loc/track.py); only [:6, :6] is read
     n_upd: int
     n_clusters: int
     p_cnn: float
@@ -83,7 +83,7 @@ class AlertCore:
         return msg
 
     def rate_track(self, tr: TrackSnapshot):
-        speed = float(np.linalg.norm(tr.state[3:]))
+        speed = float(np.linalg.norm(tr.state[3:6]))
         return rate(Evidence(tr.p_cnn, tr.detected_s, tr.duty, float(tr.state[2]), float(np.sqrt(tr.P[2, 2])),
                              speed, tr.n_clusters)), speed
 

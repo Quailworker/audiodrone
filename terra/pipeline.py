@@ -1,9 +1,14 @@
 """Run the whole chain on a rendered terrain scenario and package the result for the tool.
 
     detection   the real CNN (model 1, B_logf) on each cluster's reference mic, 32 kHz
-    direction   the reflection-aware beamformer per cluster (loc/doa.py, 100-860 Hz)
-    tracking    the EKF over all clusters (loc/track.py) with the terrain as the ground
+    pitch       the frequency tracker (loc/freqtrack.py) on each cluster's reference mic, 8 kHz   [chain v2]
+    direction   the reflection-aware beamformer per cluster (loc/doa.py, 100-860 Hz); in chain v2 steered
+                on the tracker's harmonic lines where it holds a tone (bf_trk), else the whole band
+    tracking    the EKF over all clusters (loc/track.py) with the terrain as the ground; chain v2 adds the
+                tracked pitches as Doppler measurements
     alerts      rating, danger zone and alert tiers (alerting/core.py), height above the local ground
+
+scenario["chain"]: "v2" (default) or "v1" (the v0.9 chain: CNN + whole-band beamformer, directions only).
 
 A cluster's direction is used in a frame when its CNN says drone (p >= P_DET over the 0.1 s frame) and
 the beamformer's coherence passes COH_GATE, the same gate as Phase 1.
@@ -23,7 +28,9 @@ from cnn.evaluate import predict
 from cnn.model import CLASSES, DroneCNN14
 from loc.doa import BeamformerDOA, angle_deg
 from loc.evaluate import audible
+from loc.freqtrack import HarmonicTracker
 from loc.render import truth as make_truth
+from loc.run_doa import tracker_weights
 from loc.track import Track, Tracker
 
 from .scenario import FRAME_HZ, FS_OUT, render
@@ -66,6 +73,15 @@ def run(scn, out_dir, progress=print, workers=6):
         idx = np.clip((tf * 100).astype(int), 0, len(probs) - 1)
         p_cnn[k] = np.array([probs[max(i - 5, 0): i + 5].mean() for i in idx])
         sf.write(out_dir / f"cluster{k}.wav", ref[::2], 16000, subtype="PCM_16")      # to listen in the tool
+    v2 = scn.get("chain", "v2") == "v2"
+    doppler = v2 and scn.get("doppler", False)                    # opt-in: hurt tracking on the 120 flat scenes (results/chain_v2)
+    pitch = np.full((K, F, 2), np.nan)
+    if v2:
+        progress("frequency tracking")
+        ht = HarmonicTracker(FS_OUT)
+        for k, x8, _ref, _lab, _scr in clusters:
+            r = ht.run(x8[0], tf)
+            pitch[k] = np.where(np.isfinite(r["f0_fine"]), r["f0_fine"], r["f0"])
     progress("direction finding")
     bf = BeamformerDOA(shared["offsets"], FS_OUT, shared["mount"])
     U = np.zeros((K, F, 3), np.float32)
@@ -73,6 +89,12 @@ def run(scn, out_dir, progress=print, workers=6):
     for k, x8, _ref, _lab, _scr in clusters:
         r = bf.run(x8, tf)
         U[k], coh[k] = r["u"], r["coh"]
+        if v2:
+            tone = np.isfinite(pitch[k, :, 0])
+            if tone.any():
+                w = tracker_weights({"c0/f0": pitch[k], "c0/f0_fine": pitch[k]}, 0, bf.base.f)
+                rt = bf.run(x8, tf, chunk=4, weights=w)
+                U[k, tone], coh[k, tone] = rt["u"][tone], rt["coh"][tone]
     del bf
     if device == "cuda":
         torch.cuda.empty_cache()
@@ -87,12 +109,14 @@ def run(scn, out_dir, progress=print, workers=6):
     trk = Tracker(centres, flat=True, sigma_u=0.04, ground=terrain.height, birth_range=4000.0)
     site = SiteDict({"sites": scn.get("sites", []), "shelters": scn.get("shelters", []),
                      "groups": scn.get("groups", []), "origin_latlon": list(scn.get("origin", [0, 0]))})
+    (out_dir / "alerts.jsonl").unlink(missing_ok=True)                             # a rerun into the same folder starts afresh
     log = LogSink(out_dir / "alerts.jsonl")
     core = AlertCore(site, Delivery([log]), ApprovalQueue(auto_after_s=15.0), cluster_xy=centres[:, :2])
     heard_since, history, frames = None, [], []
     for i, t in enumerate(tf):
         meas = [(k, U[k, i].astype(float)) for k in range(K) if use[k, i]]
-        tracks = trk.step(t, meas)
+        freqs = {k: [f for f in pitch[k, i] if np.isfinite(f)] for k in range(K)} if doppler else None
+        tracks = trk.step(t, meas, freqs)
         heard = bool(det[:, i].any())
         heard_since = (heard_since if heard_since is not None else t) if heard else None
         history.append(heard)
@@ -117,6 +141,8 @@ def run(scn, out_dir, progress=print, workers=6):
                                    "sz": round(float(np.sqrt(tr.P[2, 2])), 1), "n": tr.n_upd}
                                   for tr in tracks if tr.n_upd >= 5]})
     result = package(scn, shared, clusters, truth, tf, p_cnn, det, use, aud, U, coh, frames, core.events)
+    result["pitch_hz"] = np.round(np.where(np.isfinite(pitch[..., 0]), pitch[..., 0], 0), 1).tolist()
+    result["chain"] = "v2" if v2 else "v1"
     result["timing"] = {"render_s": round(t_render, 1), "total_s": round(time.time() - t0, 1)}
     progress("done")
     return result

@@ -10,6 +10,8 @@ beamformer restricted to bins near the drone's own shaft-rate harmonics as recei
 (true per-rotor shaft rates, Doppler-shifted by the true radial speed). It is an oracle: the upper bound of
 steering direction finding with the comb tracker's lines (design 5.2, 6) instead of the whole band.
 "bf_comb2k" is the same over 100-2000 Hz (the drone's lines above the tetrahedron's 860 Hz alias limit).
+--trkcomb adds "bf_trk" / "bf_trk2k": the same beamformer guided by the frequency tracker's own lines
+(loc/freqtrack.py, both tracked tones at the reference mic, no truth): the real, non-oracle version.
 """
 import argparse
 import json
@@ -77,6 +79,40 @@ def comb_weights(truth, k, f_bins, tol_hz=4.0):
 
 
 COMB_VARIANTS = {"bf_comb": (100.0, 860.0), "bf_comb2k": (100.0, 2000.0)}
+TRK_VARIANTS = {"bf_trk": (100.0, 860.0), "bf_trk2k": (100.0, 2000.0)}
+
+
+def tracker_weights(fr, k, f_bins, tol_hz=4.0):
+    """(frames, bins) 0/1 mask: bins within tol of a harmonic of either tone the tracker found at cluster k."""
+    f0 = np.where(np.isfinite(fr[f"c{k}/f0_fine"]), fr[f"c{k}/f0_fine"], fr[f"c{k}/f0"]).astype(float)   # (F, tones)
+    w = np.zeros((len(f0), len(f_bins)), np.float32)
+    for j in range(f0.shape[1]):
+        f = f0[:, j]
+        on = np.isfinite(f)
+        n = np.round(f_bins[None] / np.where(on, f, 1.0)[:, None])
+        hit = on[:, None] & (n >= 1) & (np.abs(f_bins[None] - n * np.where(on, f, 1.0)[:, None]) <= tol_hz)
+        w = np.maximum(w, hit.astype(np.float32))
+    return w
+
+
+def add_trk(stem, kind, mount, fs, n_clusters):
+    """Add the tracker-guided beamformer to an existing .doa.npz (runs the tracker if needed)."""
+    from loc.eval_freq import track_scene
+    fr = track_scene(stem)
+    tf = np.load(f"{stem}.truth.npz")["frame_t"]
+    out = dict(np.load(f"{stem}.doa.npz"))
+    for tag, band in TRK_VARIANTS.items():
+        if f"{tag}/c0/u" in out:
+            continue
+        bf = BeamformerDOA(cluster_offsets(kind), fs, MOUNT_Z[mount], band=band)
+        for k in range(n_clusters):
+            x, _ = sf.read(f"{stem}.c{k}.flac", dtype="float32")
+            r = bf.run(x.T, tf, chunk=4, weights=tracker_weights(fr, k, bf.base.f))
+            out[f"{tag}/c{k}/u"] = r["u"].astype(np.float32)
+            out[f"{tag}/c{k}/coh"] = r["coh"].astype(np.float16)
+        del bf
+        torch.cuda.empty_cache()
+    np.savez_compressed(f"{stem}.doa.npz", **out)
 
 
 def add_comb(stem, kind, mount, fs, n_clusters):
@@ -105,16 +141,18 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="only the first N scenes (sorted by name)")
     ap.add_argument("--wait-for", type=int, default=0, help="keep polling until this many scenes are processed")
     ap.add_argument("--comb", action="store_true", help="add the oracle comb-guided beamformer to existing results")
+    ap.add_argument("--trkcomb", action="store_true", help="add the frequency-tracker-guided beamformer")
     a = ap.parse_args()
     d = Path(a.data) / a.config
-    if a.comb:
+    if a.comb or a.trkcomb:
+        variants, add = (COMB_VARIANTS, add_comb) if a.comb else (TRK_VARIANTS, add_trk)
         stems = sorted(str(p)[:-8] for p in d.glob("L*.doa.npz"))[: a.limit or None]
         for i, stem in enumerate(stems):
-            if all(f"{t}/c0/u" in np.load(stem + ".doa.npz") for t in COMB_VARIANTS):
+            if all(f"{t}/c0/u" in np.load(stem + ".doa.npz") for t in variants):
                 continue
             meta = json.loads(Path(stem + ".json").read_text())
-            add_comb(stem, meta["cluster"], meta["mount"], meta["fs"], len(meta["centres"]))
-            print(f"comb {i + 1}/{len(stems)}", flush=True)
+            add(stem, meta["cluster"], meta["mount"], meta["fs"], len(meta["centres"]))
+            print(f"{'comb' if a.comb else 'trk'} {i + 1}/{len(stems)}", flush=True)
         return
     est = None
     t0, n = time.time(), 0

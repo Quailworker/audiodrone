@@ -89,3 +89,38 @@ def test_covariance_consistent():
                 e = tr.s[:3] - interp_path(t_ctrl, p, np.array([t]))[0]
                 nees.append(e @ np.linalg.solve(tr.P[:3, :3], e))
     assert 0.8 < np.mean(nees) < 6.0, np.mean(nees)
+
+
+def pitches(t_ctrl, p, centres, times, f0=180.0, sd=0.002, seed=0, octave_cluster=2):
+    """Pitch heard at each cluster: f0(emission time) / (1 + rdot / c), RPM wander, 0.2 % noise.
+    One cluster locks onto the second harmonic (alignment must undo it)."""
+    rng = np.random.default_rng(seed)
+    v = np.gradient(p, t_ctrl, axis=0)
+    out = []
+    for k, c in enumerate(centres):
+        tau, r = emission_time(times, t_ctrl, p, c)
+        u = (interp_path(t_ctrl, p, tau) - c) / r[:, None]
+        rdot = np.einsum("ij,ij->i", u, interp_path(t_ctrl, v, tau))
+        f = f0 * (1 + 0.03 * np.sin(tau / 4)) / (1 + rdot / 343.0) * np.exp(rng.normal(0, sd, len(times)))
+        out.append(f * (2 if k == octave_cluster else 1))
+    return [{k: [out[k][i]] for k in range(len(centres))} for i in range(len(times))]
+
+
+def test_doppler_improves_velocity_flat():
+    """Directions + pitch (D-16) vs directions only, flat clusters, 0.01 direction noise, 0.1 % pitch noise.
+    Doppler about halves the horizontal velocity error; with every cluster on the ground it adds little
+    to v_z (design 13.1), so v_z must only not get worse."""
+    centres, _ = field("square5_100", "flat", "ground")
+    t_ctrl, p = truth_pass()
+    v = np.gradient(p, t_ctrl, axis=0)
+    times = np.arange(0.05, 40, 0.1)
+    m = measurements(t_ctrl, p, centres, times, sigma=0.01)
+    rms = {}
+    for name, fq in (("dir", None), ("dop", pitches(t_ctrl, p, centres, times, sd=0.001))):
+        res = run_tracker(times, m, centres, True, freqs_per_frame=fq, sigma_u=0.01, sigma_lnf=0.002)
+        e = np.array([max(tr, key=lambda x: x[3])[1][3:6] - interp_path(t_ctrl, v, np.array([t]))[0]
+                      for t, tr in zip(times, res, strict=True) if t > 8 and tr])
+        rms[name] = np.sqrt((e ** 2).mean(0))
+    h = {k: np.hypot(*r[:2]) for k, r in rms.items()}
+    assert h["dop"] < 0.65 * h["dir"], rms
+    assert rms["dop"][2] < 1.3 * rms["dir"][2], rms

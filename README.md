@@ -12,7 +12,9 @@ Acoustic drone detection: a scenario simulator that renders what microphones hea
 - **results/loc_v1/** has the Phase 1 localisation results (direction finding, tracking, tetrahedron vs flat clusters, real IDMT check); `tasks/phase1_localisation_REPORT.md` summarises them.
 - This README covers how to replicate the published dataset, models and results.
 
-Status (2026-10-24): the UAE terrain tool runs the full chain (CNN detection, direction finding, tracking, alerts) on rendered sound over real terrain; model 2 (frequency-tracker input channels, `results/M2_logf_comb/`) trained but is not an upgrade at the standard threshold (fewer false alarms, shorter detection range), so model 1 (`B_logf`) stays the default.
+Status (2026-10-24, later): the frequency tracker is rebuilt (`loc/freqtrack.py`, `results/freqtrack/`). It now guides the beamformer in place of the true shaft rates (chain v2), and tracking with it matches the oracle (`results/chain_v2/`). Live input from a sound card is in `live/` (section 9). Doppler in the tracker is built but off by default, because it made tracking worse on full scenes; `results/chain_v2/README.md` explains why and what to build instead. Cluster spacing study: `results/spacing/`.
+
+Earlier status (2026-10-24): the UAE terrain tool runs the full chain (CNN detection, direction finding, tracking, alerts) on rendered sound over real terrain; model 2 (frequency-tracker input channels, `results/M2_logf_comb/`) trained but is not an upgrade at the standard threshold (fewer false alarms, shorter detection range), so model 1 (`B_logf`) stays the default.
 
 Earlier status (design v0.9, models v0.5, 2026-10-23): Phase 1 localisation built and measured in simulation (design.md 13.5, `results/loc_v1/`). The CNN is trained on simulated audio only. It has been tested on public real recordings (detects real drones to ~100 m, but has many false alarms on everyday sounds; see UPGRADES.md). The main real test is the owner's own drone flyover recordings (design.md 14.7). Those are not in this repo and are never used for training.
 
@@ -109,7 +111,12 @@ What the terrain model does and does not include is in [section 8](#8-uae-terrai
 | `terra/examples/` | Example scenarios shown in the tool |
 | `scripts/get_dem_uae.sh`, `scripts/terra_check.py` | DEM download; command-line check of the tool |
 | `results/M2_logf_comb/` | Model 2 (log-f + whitened spectrum + harmonic-comb channels): training log and evaluations |
-| `tests/` | pytest unit tests for direction finding and tracking |
+| `loc/freqtrack.py` | Frequency tracker: harmonic comb + Viterbi pitch per mic, fine pitch, Doppler between clusters (design 6, 13.1) |
+| `loc/eval_freq.py` | Scores the frequency tracker against the true rotor rates; writes `<scene>.freq.npz` |
+| `live/run.py` | Live input for the field test: sound card or replayed WAV, CNN + frequency tracker + bearing, records the audio |
+| `scripts/run_chain_v2.sh` | Chain v2 evaluation on the flat-cluster scenes (tracker-guided beamformer, real trigger, Doppler) |
+| `scripts/spacing_study.py` | Cluster spacing study on flat ground (results in `results/spacing/`) |
+| `tests/` | pytest unit tests: direction finding, tracking (with Doppler), rendering, alerting, terrain, live input |
 | `results/loc_v1/` | Localisation results: `summary.json`, `summary.md`, figures, `idmt/` |
 | `alerting/` | System layer: `rating.py` (D-32), `danger.py` (13.3/13.6.4), `core.py` (fixed-logic alerts), `delivery.py`, `agent.py` (Nemotron), `sitedata.py` + `sitedata_mcp.py` (Zetaris slot), `config.py`, `replay.py`, `demo.py`, `eval_rating.py` |
 | `results/system_demo/` | Alert timelines from replays and the tabletop, rating evaluation |
@@ -231,6 +238,16 @@ bash scripts/render_loc.sh tetra_pole_150 8                # optional
 
 Direction finding needs a GPU for speed (about 4 s per scene on an RTX 3080, main methods only); it runs on the CPU too.
 
+**Chain v2 (frequency tracker instead of the oracles).** It needs scenes with their audio kept (`loc/render.py --audio`; the flat set used is in `data/loc_ft`):
+
+```bash
+bash scripts/run_chain_v2.sh data/loc_ft flat_ground_100   # bf, oracle comb, tracker comb (+ .freq.npz), scoring, tracking
+.venv/bin/python scripts/doppler_sweep.py                  # Doppler noise sweep (results/chain_v2/doppler_sweep.txt)
+.venv/bin/python scripts/spacing_study.py --out results/spacing --workers 3 --chain v2   # cluster spacing, on flat terra scenes
+```
+
+Results and explanations: `results/freqtrack/README.md`, `results/chain_v2/README.md`, `results/spacing/README.md`.
+
 ## 7. System layer: alerts, Nemotron, site data
 
 `alerting/` turns tracks into alerts (design.md 13.6):
@@ -264,8 +281,9 @@ ollama pull nemotron-mini                                   # stand-in for Meter
 | Stage | What runs |
 |---|---|
 | Detection | The real CNN (model 1) on each cluster's reference mic |
-| Direction | The beamformer |
-| Tracking | The Kalman tracker, with the terrain as the ground |
+| Frequency tracker | Harmonic tone and pitch per cluster |
+| Direction | The beamformer, guided by the tracker's tone lines (chain v2; `"chain": "v1"` for the plain beamformer) |
+| Tracking | The Kalman tracker, with the terrain as the ground (`"doppler": true` adds the opt-in pitch state) |
 | Alerts | The alert core |
 
 A 2–3 minute flight with 5 clusters takes about 30–70 s. Runs are saved in `runs_terra/<id>/` with the scenario, results, alerts and each cluster's audio.
@@ -279,6 +297,30 @@ A 2–3 minute flight with 5 clusters takes about 30–70 s. Runs are saved in `
 - Only one diffracting edge is modelled per path, with no multi-ridge losses or reflections off hillsides.
 - Copernicus is a surface model, so buildings count as terrain.
 - Detection uses model 1.
+
+## 9. Field test: live input
+
+`live/run.py` runs the per-cluster front of the chain in real time on a microphone (or a recording played back at real-time speed): CNN, frequency tracker, and with a 4-mic cluster a bearing. **It records the raw audio while it runs**, so every flyover can be re-analysed later with newer models. Field recordings are test data only (D-25): never add them to training.
+
+```bash
+.venv/bin/python -m live.run --list                                    # capture devices
+.venv/bin/python -m live.run --device hw:1,0 --channels 1 --record field/2026-10-25_pass1.wav
+.venv/bin/python -m live.run --device hw:1,0 --channels 4 --cluster flat --record field/c0.wav
+.venv/bin/python -m live.run --replay data/real/svanstrom/audio/DRONE_001.wav     # no mic: replay in real time
+```
+
+One line every 0.5 s (GPU) or 1 s (CPU):
+
+```
+     4.5s  DRONE [#############       ] 0.63  tone   173.8 Hz (score 16.8)  pitch +0.48 %/s
+```
+
+- `DRONE` and the bar: the CNN's drone probability (model 1); the flag shows at 0.5 or more.
+- `tone`: the strongest harmonic family the frequency tracker holds, and its comb score (5 or more counts as a tone).
+- `pitch`: the tone's trend over the last 2 s. During a pass it falls as the drone goes by (Doppler). On one mic this is only a supporting cue, because an RPM change looks the same.
+- With `--channels 4 --cluster flat`: azimuth, elevation and coherence from the tracker-guided beamformer.
+
+The same records go to a JSONL log next to the recording. Input comes through PortAudio (`pip install sounddevice` plus the system PortAudio library) when available, else `arecord` on Linux. If the analysis falls behind real time it skips updates but never stops recording. `--gain-db` adjusts the level reaching the CNN.
 
 ## Outputs and labels
 

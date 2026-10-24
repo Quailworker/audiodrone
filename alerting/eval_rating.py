@@ -43,8 +43,8 @@ def scene_rows(args):
                 continue
             dist = min(np.linalg.norm(tr.s[:3] - P[k][i]) for k in range(n_d))
             r = rate(Evidence(P_CNN, det_s, 1.0, float(tr.s[2]), float(np.sqrt(tr.P[2, 2])),
-                              float(np.linalg.norm(tr.s[3:])), int(aud[:, i].sum())))
-            rows.append(("drone" if dist <= MATCH_M else "false", r.level, float(tr.s[2]), float(np.linalg.norm(tr.s[3:]))))
+                              float(np.linalg.norm(tr.s[3:6])), int(aud[:, i].sum())))
+            rows.append(("drone" if dist <= MATCH_M else "false", r.level, float(tr.s[2]), float(np.linalg.norm(tr.s[3:6]))))
     return rows
 
 

@@ -14,7 +14,6 @@ from alerting.delivery import ApprovalQueue, Delivery, cot_event
 from alerting.rating import Evidence, rate
 from alerting.sitedata import LocalSiteData
 
-
 # --- rating (D-32, D-38) -----------------------------------------------------------------
 
 def test_rating_levels():
@@ -206,3 +205,29 @@ def test_nemotron_followup_is_grounded():
     out, layer = asyncio.run(go())
     if out is not None:
         assert "Shelter" in out["text"] and layer.unknown_names(out["text"]) == []
+
+
+def test_operator_answer_falls_back_to_facts_on_timeout():
+    """A model that never answers in time: the operator still gets the system's facts, within the deadline."""
+    import time
+
+    from alerting.agent import facts_answer
+    from alerting.config import Config
+    core, _ = _core()
+    for i in range(40):
+        core.tick(i * 0.1, [_snap(150, 0, -12, 0)])
+    cfg = Config()
+    cfg.llm_timeout_s, cfg.answer_deadline_s = 0.5, 0.8
+    layer = NemotronLayer(core, cfg)
+
+    def slow(**kw):
+        time.sleep(2.0)
+    layer.client.chat.completions.create = slow
+    async def timed():                       # timed inside the loop: asyncio.run's exit waits for the stuck thread
+        t0 = time.time()
+        out = await layer.answer("Where is the drone going?")
+        return time.time() - t0, out
+    took, (text, _, unverified) = asyncio.run(timed())
+    assert took < 1.2, took
+    assert text.startswith("[system facts, no model answer]") and "track 1" in text and unverified == []
+    assert facts_answer({"tracks": [], "danger": []}).endswith("No drone tracks at the moment.")
