@@ -25,6 +25,12 @@ Remote start from the laptop needs SSH over Tailscale, and the desktop uses Tail
 - Real azimuth accuracy is about 8.5°.
 - Doppler (step 3b) is not built yet.
 
+**Update 2026-10-24 (design v0.10, 13.7):**
+- The frequency tracker is rebuilt (`loc/freqtrack.py`).
+- Steering on the **tracker's** lines (`bf_trk`) tracks as well as steering on the true lines did, so the oracle is gone.
+- Doppler is built in the EKF but makes full-scene tracking worse, so it is off by default. The next design is pair frequency differences (`results/chain_v2/README.md`).
+- Live input is in `live/` (README section 9).
+
 Original plan, kept for reference:
 
 **Instructions:** [`tasks/phase1_localisation.md`](tasks/phase1_localisation.md)

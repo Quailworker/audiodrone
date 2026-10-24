@@ -41,6 +41,9 @@ class Config:
     llm_api_key: str = field(default_factory=lambda: os.environ.get("LLM_API_KEY", "rt-local"))
     llm_model: str = field(default_factory=lambda: os.environ.get("LLM_MODEL", "nemotron-mini"))
     llm_timeout_s: float = field(default_factory=lambda: float(os.environ.get("LLM_TIMEOUT_S", "20")))
+    # whole operator answer (all tool rounds); after it the facts-only fallback answer is given
+    answer_deadline_s: float = field(default_factory=lambda: float(os.environ.get("ANSWER_DEADLINE_S", "45")))
+    llm_max_tokens: int = field(default_factory=lambda: int(os.environ.get("LLM_MAX_TOKENS", "300")))
     site_file: str = field(default_factory=lambda: os.environ.get("SITE_FILE", str(DEFAULT_SITE)))
     site_mcp: str = field(default_factory=lambda: os.environ.get("SITE_MCP", ""))
 

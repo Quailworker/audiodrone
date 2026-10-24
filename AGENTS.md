@@ -170,6 +170,15 @@ If it fails:
 | Run status `error` | Read `runs_terra/<id>/error.txt` for the traceback |
 | The run never finishes and many `spawn_main` processes keep restarting | A driver script without the `__main__` guard (Ground rules); stop it and add the guard |
 
+## Step 8: live input check (field-test tool)
+
+```bash
+.venv/bin/python -m pytest -q tests/test_live.py
+.venv/bin/python -m live.run --replay data/real/svanstrom/audio/DRONE_001.wav --speed 0 --log /tmp/live.jsonl
+```
+
+Expected on `DRONE_001.wav` (Svanström et al. 2021, CC0, Zenodo 5500576, `Data/Audio` unpacked to `data/real/svanstrom/audio`): the CNN flags drone from about 1.5 s on, and the tracker holds a tone near 172–175 Hz from about 3.5 s. With a microphone, `--list` shows the devices; always pass `--record` in the field so the audio is kept (test data only, never training, D-25). See README section 9.
+
 ## Known issues (design.md 5.9.4)
 
 - Electric drones are only detected about 76 % of the time at 0–25 m in sim. This is probably the metric counting ignored or masked frames; under investigation.
