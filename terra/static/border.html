@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Border Watch</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="/static/border.css">
+<script type="importmap">
+{"imports": {"three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+             "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<div id="view" aria-label="3D map of the UAE land border"></div>
+<div class="scan" aria-hidden="true"></div>
+
+<header class="top">
+  <div class="mark" aria-hidden="true"><span></span></div>
+  <div class="title">
+    <div class="name">BORDER WATCH</div>
+    <div class="sub" id="sub">UAE LAND BORDER · <span style="color:var(--amber)">SIMULATED INCIDENTS, NOT A LIVE FEED</span></div>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="clock">
+    <div class="t" id="clock">--:--:--</div>
+    <div class="sub" id="watch">WATCH T+00:00:00</div>
+  </div>
+  <div class="con" id="con" title="Highest alert level active now"><span class="lamp"></span><span id="conText">NOMINAL</span></div>
+</header>
+
+<div class="banner" id="banner" hidden role="alert">
+  <span class="tri" aria-hidden="true">▲</span><span id="bannerText"></span>
+  <button id="bannerGo" type="button">FOCUS</button>
+</div>
+
+<aside class="panel left" aria-label="Incidents and sectors">
+  <h2>INCIDENTS <span class="dim">SIMULATED · CLICK TO VIEW</span></h2>
+  <div class="incidents" id="incidents"></div>
+  <details class="secbox">
+    <summary><h2>ALL SECTORS <span class="dim" id="secCount"></span></h2></summary>
+    <div class="sectors" id="sectors"></div>
+  </details>
+</aside>
+
+<aside class="panel right" aria-label="Event log and questions">
+  <h2>EVENT LOG <span class="dim" id="logCount"></span></h2>
+  <div class="log" id="log" aria-live="polite"></div>
+  <section class="ask" aria-label="Ask about this incident">
+    <h2>ASK <span class="dim" id="askWho">NEMOTRON VIA METERLESS · DATA FROM ZETARIS</span></h2>
+    <div class="chips" id="chips">
+      <button type="button" data-q="Which units are near the drone?">Units near it?</button>
+      <button type="button" data-q="Where is the nearest shelter for the post, and how long is the walk?">Nearest shelter?</button>
+      <button type="button" data-q="Where is the drone heading, and how long until it reaches the post?">Time to the post?</button>
+    </div>
+    <form id="askForm"><input id="askQ" type="text" maxlength="300" placeholder="Open an incident, then ask about it" aria-label="Question" disabled>
+      <button id="askGo" type="submit" disabled>ASK</button></form>
+    <div class="answer" id="answer" aria-live="polite"></div>
+  </section>
+</aside>
+
+<nav class="crumbs" id="crumbs">
+  <button id="back" type="button" hidden>◂ THEATRE</button>
+  <span id="crumbText">THEATRE · UAE</span>
+  <span class="src" id="siteSrc" hidden></span>
+</nav>
+
+<section class="card" id="card" hidden aria-label="Selected track"></section>
+
+<div class="layers" role="group" aria-label="Layers">
+  <label><input type="checkbox" id="lyrClusters" checked> CLUSTERS</label>
+  <label><input type="checkbox" id="lyrBearings" checked> BEARINGS</label>
+  <label><input type="checkbox" id="lyrGrid" checked> GRID</label>
+  <label title="Where the simulated drone really was. Not available to an operator."><input type="checkbox" id="lyrTruth"> SIM TRUTH</label>
+  <label title="Fly to each incident as it happens, and back out when it ends"><input type="checkbox" id="follow" checked> AUTO-FOLLOW</label>
+  <button id="helpBtn" type="button" aria-label="Show the legend">? LEGEND</button>
+  <button id="zetBtn" type="button" title="Questions across the sector, fusion and operations databases, through Zetaris">ZETARIS ▴</button>
+  <label class="ex">RELIEF <input type="range" id="exag" min="1" max="6" step="0.5" value="3" aria-label="Vertical exaggeration"> <span id="exagV">3×</span></label>
+</div>
+
+<div class="readout" id="readout">--</div>
+<section class="zet" id="zet" hidden aria-label="Zetaris: questions across the databases">
+  <div class="zhead">
+    <h2>ZETARIS <span class="dim">ONE QUERY ACROSS SEPARATE DATABASES</span></h2>
+    <div class="ztabs" role="tablist">
+      <button type="button" data-q="overview" role="tab">ALL SECTORS</button>
+      <button type="button" data-q="first_heard" data-inc role="tab">FIRST TO HEAR</button>
+      <button type="button" data-q="heard_vs_tracked" data-inc role="tab">HEARD vs TRACKED</button>
+      <button type="button" data-q="units_near" data-inc role="tab">UNITS NEAR TRACKS</button>
+    </div>
+    <button id="zetX" type="button" aria-label="Close">✕</button>
+  </div>
+  <div class="zbody" id="zetBody"></div>
+</section>
+<section class="help" id="help" aria-label="How to read this screen">
+  <h2>HOW TO READ THIS <button id="helpX" type="button" aria-label="Close">✕</button></h2>
+  <p>The watch replays simulated drone incidents along the UAE border, as our detection system saw them. It plays by itself and flies to each incident as it happens.</p>
+  <ul>
+    <li><i class="k amber"></i>Border line (UAE on one side)</li>
+    <li><i class="k cyan dot"></i>Microphone cluster: 2 rows along the border</li>
+    <li><i class="k green dot"></i>Cluster flashing green: it hears a drone</li>
+    <li><i class="k amber thin"></i>Bearing: the direction a cluster hears it from</li>
+    <li><i class="k red dia"></i>Tracked drone. The ring shows the position uncertainty, the line ahead is where it's heading</li>
+    <li><i class="k white dash"></i>SIM TRUTH: where the drone really was (off by default)</li>
+    <li><i class="k blue dot"></i>Shelter · <i class="k green tri"></i>Patrol or garrison (site data from Zetaris)</li>
+  </ul>
+  <p class="ctl">Drag: move · Right-drag: rotate · Scroll: zoom · Esc: back to the whole border · Space: pause · N: next event</p>
+  <button id="helpGo" type="button">GOT IT</button>
+</section>
+<div class="watermark">SIMULATED INCIDENTS · OUTPUT OF THE DETECTION CHAIN · NOT A LIVE FEED</div>
+
+<footer class="timeline">
+  <button id="play" type="button" aria-label="Play or pause">▶</button>
+  <div class="speeds" role="group" aria-label="Replay speed">
+    <button data-s="1" type="button">1×</button><button data-s="5" type="button">5×</button><button data-s="15" type="button" class="on">15×</button><button data-s="60" type="button">60×</button>
+  </div>
+  <button id="next" type="button" title="Jump to the next border event">NEXT EVENT ▸▸</button>
+  <div class="bar" id="bar"><div class="ticks" id="ticks"></div><div class="head" id="head"></div>
+    <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Watch time"></div>
+  <div class="len" id="len">--</div>
+</footer>
+
+<div class="loading" id="loading">INITIALISING THEATRE…</div>
+<script type="module" src="/static/border.js"></script>
+</body>
+</html>

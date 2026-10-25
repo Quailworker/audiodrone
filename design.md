@@ -1,6 +1,12 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.10, 2026-10-24.
+- **Status:** draft v0.11, 2026-10-25.
+  - v0.11 adds **Border watch** and connects the sponsor tools (13.8):
+    - the operator screen for the 1,024 km UAE land border, with 3,395 flat clusters in two rows (D-30 at the 600 m spacing of 13.7.5) and six simulated incidents through the full chain;
+    - a fixed-logic **border monitor** ("near the border" and "crossed the border", once per intruder and sector);
+    - **Zetaris** running locally, federating eight separate stores (six sector sensor stores, fusion, operations);
+    - **Nemotron 3.5 Lightning through Meterless Nightshift** for operator answers.
+    - Findings: two-stroke drones are heard 1–1.4 km out and tracked before they cross; a quiet electric drone in the Hajar or in town noise is heard only at or past the line; ghost tracks are the main tracker weakness.
   - v0.10 rebuilds the **frequency tracker** (section 6, `loc/freqtrack.py`) and measures **chain v2**, which uses the tracker in place of the simulator's truth (13.7):
     - the tracker-guided beamformer gets most of the oracle comb's gain and the same tracking accuracy;
     - Doppler in the EKF made tracking worse on full scenes (F2 and line identity), so it is off by default;
@@ -1607,10 +1613,11 @@ CNN detections without a track ---------------------------------->|  tiers + tem
                                        delivery (delivery.py): log, webhook, ATAK CoT, operator approvals
                                                                   ^
 NEMOTRON LAYER (agent.py): follow-ups, operator Q&A  ------------|  only adds to what the core sent
-   |  OpenAI-compatible endpoint: Meterless Nightshift (stand-in: Ollama + Nemotron Mini)
+   |  OpenAI-compatible endpoint: Meterless Nightshift -> Nemotron 3.5 Lightning (v0.11; fallback Ollama + Nemotron Mini)
    |  tools: get_tracks, get_danger_zone, explain_evidence (core)
    |         people_in_zone, nearest_shelter, list_shelters, list_sites, get_group (site data over MCP)
-SITE DATA over MCP: Zetaris (stand-in: alerting/sitedata_mcp.py over a JSON site file)
+SITE DATA over MCP: Zetaris (v0.11: alerting/sitedata_mcp.py --zetaris reads the federated borderops tables;
+                    the JSON-file stand-in remains for tests and offline use)
 ```
 
 Configuration: `alerting/config.py`. `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` point at Nightshift; `SITE_MCP` points at the Zetaris MCP server. Swapping in the real services is configuration only.
@@ -1619,8 +1626,8 @@ Configuration: `alerting/config.py`. `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODE
 
 | Tool | What it is (checked 2026-10-23) | Status here |
 |---|---|---|
-| **Meterless Nightshift** | Local AI server for Mac, Windows (NVIDIA GPU required) and DGX Spark. It serves an OpenAI-compatible API on the LAN (e.g. `http://<pc>:8088/v1`, key `rt-local`) and lists local Nemotron models (Nemotron 3.5 Lightning, Nemotron 3 Nano 30B-A3B) | **Installed on Anna's PC (2026-10-24)**, v1.2.3 MSI, checksum verified. Its Linux build is ARM64-only (DGX Spark), so it cannot run on the x86-64 desktop. Starting Nightshift's own runtime needs a click in its app, so **Nemotron 3.5 Lightning 30B-A3B** (Q4_0 GGUF, 18.9 GB, SHA-256 verified) is served by **Nightshift's bundled llama.cpp server** (`scripts/two_pc/run_nemotron_anna.cmd`):<br>• localhost only, with an API key;<br>• MoE expert weights in RAM, ~3.9 GB of VRAM;<br>• a hidden scheduled task.<br>The desktop reaches it through an SSH tunnel (`nightshift-tunnel` user unit: 18089 → llama-server, 18088 → Nightshift's own API). The key is kept in `~/.config/audiodrone/alerting.env`, outside git. **Nemotron Mini** on Ollama remains the fallback |
-| **Zetaris** | Commercial data-federation platform; no public package or MCP server found | **Not connected.** The MCP tool contract is defined (13.6.1), and a stand-in server implements it over `alerting/example_site.json` (made-up site). Connecting needs Zetaris access: an MCP endpoint, or a SQL endpoint to wrap |
+| **Meterless Nightshift** | Local AI server for Mac, Windows (NVIDIA GPU required) and DGX Spark. It serves an OpenAI-compatible API on the LAN (e.g. `http://<pc>:8088/v1`, key `rt-local`) and lists local Nemotron models (Nemotron 3.5 Lightning, Nemotron 3 Nano 30B-A3B) | **Installed on Anna's PC (2026-10-24)**, v1.2.3 MSI, checksum verified. Its Linux build is ARM64-only (DGX Spark), so it cannot run on the x86-64 desktop. Starting Nightshift's own runtime needs a click in its app, so **Nemotron 3.5 Lightning 30B-A3B** (Q4_0 GGUF, 18.9 GB, SHA-256 verified) is served by **Nightshift's bundled llama.cpp server** (`scripts/two_pc/run_nemotron_anna.cmd`):<br>• localhost only, with an API key;<br>• MoE expert weights in RAM, ~3.9 GB of VRAM;<br>• a hidden scheduled task.<br>The desktop reaches it through an SSH tunnel (`nightshift-tunnel` user unit: 18089 → llama-server, 18088 → Nightshift's own API). The key is kept in `~/.config/audiodrone/alerting.env`, outside git. **Nemotron Mini** on Ollama remains the fallback.<br>**v0.11 (2026-10-25): connected through Nightshift's own API.** Nightshift routes `nvidia/nemotron-3.5-lightning-30b-a3b` to its NVIDIA provider (hosted) at 0.5–6 s per answer. Thinking is off (`chat_template_kwargs.enable_thinking=false`), otherwise short replies come back empty. The self-hosted llama-server is stopped. Nightshift's local runtime has no model lane yet. It is needed before real personnel data, because the hosted provider sends the question's facts off the machine (13.8) |
+| **Zetaris** | Commercial data-federation platform; no public package or MCP server found | **v0.11 (2026-10-25): connected.** The hackathon bundle runs locally in Docker (driver, API, UI, Postgres; capped at about 10 GB, UI on localhost). Our stores are registered as JDBC datasources and read with Lightning SQL over its JDBC driver (13.8). The JSON stand-in remains for tests |
 
 #### 13.6.3 Tiers as built
 
@@ -1809,6 +1816,71 @@ The setup is 5 flat clusters on a square of side 100, 300, 600 or 1000 m around 
 - **100 m is too tight.** It gives fragmented tracks, plus 4 false "over it now" alerts while the drone was still about 1 km out.
 - **300–600 m is the best compromise.** 300 m gave the best real warning in every class, and 600 m gave no false alerts. This replaces the 13.5 finding of "no difference between 100 and 150 m", which was measured before steering on the comb.
 - **Not built (owner's decision):** an early "approaching" tier from the CNN detection plus bearings from several clusters, before the track is firm. It could add 1–3 min of warning, at the cost of more false warnings. Tripwire clusters (Q46) are the other way to buy time.
+
+### 13.8 Border watch, the stores and the sponsor tools (v0.11) [J idea, C build]
+
+Joseph's request: an operator map of the whole border, interactive in 3D, that zooms into a location when a drone is spotted. Zetaris should connect the data the clusters produce. Meterless and Nemotron should serve the operators.
+
+#### 13.8.1 The border and the sensor line
+
+- **Border** (`terra/border.py`): Natural Earth 1:10m land boundaries, every line with the UAE on one side, 1,024 km in total:
+  - Saudi Arabia, 457 km;
+  - Oman, 438 km;
+  - Musandam, 74 km;
+  - the Madha and Nahwa enclave rings, 56 km.
+
+  Each line is stored with the UAE on its left, so the inward normal is known. The lines are cut into 42 sectors of about 25 km (`SAU-01…`, `OMN-01…`, `MUS-`, `MAD-`). Natural Earth marks these lines "verify". They are good to a few hundred metres: fine for planning and demonstration, not for siting hardware.
+- **Deployment:** flat ground clusters (D-30) in two rows, 300 m and 900 m inside the line, every 600 m, with the rows staggered by half a spacing. 600 m is the spacing 13.7.5 found free of false alerts. That gives **3,395 clusters**. This is a full-coverage layout to reason about, not a costed plan.
+
+#### 13.8.2 Border monitor (`alerting/border.py`)
+
+A fixed-logic layer beside the alert core, with no language model. For each confirmed track (at least 10 updates, not rated a ground source) it takes the signed distance d to the border (positive inside) and the closing speed towards the UAE:
+
+| Event | Rule |
+|---|---|
+| `border_watch` | Beyond the border by more than max(2σ, 30 m), and within 1.5 km of it or crossing within 120 s |
+| `border_cross` | A track that was confirmed beyond the border is now inside by more than max(2σ, 30 m) |
+
+A track first confirmed inside is never a crossing, because it may have started there. One drone's track can break into pieces, so a sector repeats an event of the same kind only for a track more than 1.5 km from the last one reported, or 60 s after that one was last seen. Before this rule, Liwa sent 7 crossing alerts for one drone; now it sends 1.
+
+#### 13.8.3 Stores, Zetaris and Nemotron
+
+Live tracking streams directly from cluster to tracker to alerts, because a Zetaris query takes about 1 s. **Everything stored is kept in separate databases,** as separate servers would keep it, and **Zetaris joins them:**
+
+| Zetaris datasource | Holds (one row per second) |
+|---|---|
+| `sensors_<sector>` (one per sector) | That sector's clusters, and what each heard: CNN probability, tone, bearing |
+| `fusion` | Tracks (lat, lon, height above ground, speed, heading, σ), alerts, incidents |
+| `borderops` | Posts, shelters, patrol and garrison units (demo data) |
+
+Questions answered by one query across the stores (`terra/federated.py`, shown with their SQL on the screen):
+- what every sector heard, against tracks and crossings;
+- which clusters heard the drone first, and from what bearing;
+- seconds heard against seconds tracked;
+- which units the tracks came close to.
+
+**Operator questions** (`terra/ask.py`) go to Nemotron 3.5 Lightning through Meterless Nightshift. The alert core is rebuilt at the replay moment. The facts that matter are looked up in advance from Zetaris:
+- each post's nearest shelter;
+- the units near the 3 most credible tracks;
+- the clusters first to hear.
+
+The usual number and name checks apply (13.6.6). A small model answers from these facts more reliably than by choosing tool calls. If Nightshift does not answer within 3 s, Nemotron Mini on this machine answers instead. The NVIDIA provider is hosted, so the facts leave the machine. That is acceptable for simulated data; real personnel data needs a Nemotron lane in Nightshift's local runtime (Q50).
+
+#### 13.8.4 What the six incidents show (simulation)
+
+| Incident | Drone, setting | Heard | Tracked | Border alerts |
+|---|---|---|---|---|
+| HATTA-1 (OMN-17) | FPV, Hajar mountains | 23 m before the border | Only after it crossed | None (never confirmed outside); take-cover for the post about 12 s ahead |
+| AIN-1 (OMN-10) | 7–12" electric, town noise | 0.8 km **inside** | Never | None |
+| RAK-1 (MUS-02) | 7–12" electric, mountains | 116 m before | After it crossed (the track was placed several hundred metres off) | 1 near, 1 crossed |
+| GHW-1 (SAU-02) | Fixed-wing two-stroke, desert | 1.2 km before | 40 s before it crossed | 1 near, 1 crossed |
+| LIWA-1 (SAU-12) | Two-stroke multirotor, desert | About 1 km before | Before it crossed | 1 near, 1 crossed |
+| SAU-P (SAU-15) | 7–12" electric, 1 km out, flying along the border | Never | — | None (correct: it never crossed) |
+
+- **Two-strokes in open desert:** the line gives real warning, at 1–1.4 km and about 40–60 s.
+- **Quiet electric drones in mountains or town noise:** heard only at the line or past it. Clusters behind the border cannot hear far enough across terrain and noise (Q51).
+- **Ghost tracks are the main tracker weakness:** Liwa produced 22 track IDs and Ghuwaifat 12, some at implausible heights (Q49). The Zetaris all-sectors view makes this obvious.
+- All of this is one simulated flight per setting, and no field data.
 
 ## 14. Simulation and training data
 
@@ -2040,7 +2112,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 28. Build the D-32 rating in the scenario simulator (true height and speed known) and tune its thresholds; report the false-alarm reduction and any recall lost. **v0.9.1: built (`alerting/rating.py`) and measured (13.6.5):** "likely" covers 64–76 % of drone track time and 8–12 % of false track time; thresholds not yet tuned.
 29. ~~Choose tetrahedra (D-07) or flat ground clusters (D-30).~~ Resolved v0.9.1: **all flat, on the ground** (D-30), with coarse height (D-38) [J].
 30. ~~Which Nemotron model, and how it is served.~~ v0.9.1: Nightshift installed on Anna's PC; Nemotron 3.5 Lightning 30B-A3B served by its bundled llama.cpp server, reached through an SSH tunnel (13.6.2). Still open: starting Nightshift's own runtime (one click in its app) to use its routing instead.
-31. Where personnel, unit and shelter locations come from, and who may access them (Zetaris sources and access control; D-34). **v0.9.1:** the MCP tool contract is defined and implemented by a stand-in (13.6.1); needs Zetaris access (MCP endpoint or SQL to wrap) to connect.
+31. Where personnel, unit and shelter locations come from, and who may access them (Zetaris sources and access control; D-34). **v0.9.1:** the MCP tool contract is defined and implemented by a stand-in (13.6.1); needs Zetaris access (MCP endpoint or SQL to wrap) to connect. **v0.11:** connected to a local Zetaris over JDBC with demo operations data (13.8). Where the real data comes from, and Zetaris access control, are still open.
 32. Delivery channels (phone, SMS, sirens, ATAK / Cursor-on-Target) and who may approve an evacuation (D-35).
 33. Likely approach routes, expected drone speeds and the warning time required: these set the tripwire ring distance and sectors (D-36).
 34. Danger radius R, look-ahead limit T_alert and widening factor k for the alert rule; tune in the scenario simulator (13.3).
@@ -2058,6 +2130,9 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 46. Tripwire clusters (D-36) for warning time: the 100 m field gives 5–20 s, enough only for take cover in place.
 47. Add shelter capacity to the core's evacuation plan (Nemotron Lightning spotted 85 people for an 80-place shelter, 13.6.6).
 48. Doppler as frequency differences between pairs of clusters locked on the same line identity, instead of one ln f₀ state per track (13.7.3).
+49. Ghost tracks: one drone becomes 12–22 track IDs over a border crossing (13.8.4). Tighten births (more rays, a height prior) and merge tracks with the same course.
+50. A Nemotron lane in Nightshift's local runtime on the GPU PC, so operator questions and their facts stay on site (13.8.3).
+51. Sensor placement for border warning: clusters 300–900 m behind the line hear a quiet drone in mountains or town noise only at the line (13.8.4). Consider clusters on high ground, or an outer row where the border allows.
 
 ---
 

@@ -48,6 +48,9 @@ class LocalSiteData:
                 best = {**s, "distance_m": round(dist, 1), "walk_min": round(dist / 80.0, 1)}  # ~80 m/min
         return best or {"error": "no shelter outside the danger zone"}
 
+    def list_groups(self):
+        return self.d["groups"]
+
     def get_group(self, group_id):
         for g in self.d["groups"]:
             if g["id"] == group_id:

@@ -8,7 +8,10 @@ This is the map of the whole system:
 
 The reasoning and maths behind each choice are in **design.md**; decision numbers (D-xx) and sections refer to it. To set things up and check them, follow **AGENTS.md**.
 
-**Status (2026-10-24):** every software stage exists and runs end to end, but only on simulated sound and public recordings.
+**Status (2026-10-25):** every software stage exists and runs end to end, but only on simulated sound and public recordings. On top of the chain:
+- **Border watch** shows the whole UAE land border;
+- **Zetaris** (local) connects the stored sensor, fusion and operations data;
+- **Nemotron** answers operators through **Meterless Nightshift**.
 
 | Not done yet | Where it's planned |
 |---|---|
@@ -16,7 +19,7 @@ The reasoning and maths behind each choice are in **design.md**; decision number
 | Field test with the owner's flyovers | design 14.7 |
 | Doppler that helps the tracker: pair frequency differences, not one shared pitch state | results/chain_v2/README.md |
 | A mic connected for live input (the code exists) | README section 9 |
-| Connection to the real Zetaris | needs access details |
+| Real (not simulated) data in the Zetaris-connected stores | after the field test |
 
 ---
 
@@ -38,8 +41,17 @@ flowchart LR
     CORE["Alert core<br/>rating, danger zone, tiers (alerting/core.py)"]
     NEM["Nemotron layer<br/>follow-ups, operator Q&A (alerting/agent.py)"]
   end
-  SITE[("Site data over MCP<br/>Zetaris (stand-in: sitedata_mcp.py)")]
+  subgraph Stores["Stores, each its own database (scripts/sensor_stores.py, border_ops.py)"]
+    SEC[("sensors_&lt;sector&gt;<br/>detections, bearings")]
+    FUS[("fusion<br/>tracks, alerts")]
+    OPS[("borderops<br/>posts, shelters, units")]
+  end
+  SITE["Zetaris (local Docker)<br/>one query across the stores<br/>(alerting/sitedata_zetaris.py, terra/federated.py)"]
   OUT["Delivery: log, webhook,<br/>ATAK CoT, operator approval"]
+  DOA -. "per second" .-> SEC
+  TRK -. "per second" .-> FUS
+  CORE -. "events" .-> FUS
+  SEC & FUS & OPS --- SITE
   C1 & C2 -- "4-ch audio" --> DET & DOA
   C1 & C2 -- "1 channel" --> FT
   FT -- "tone lines: which bins to listen to" --> DOA
@@ -63,6 +75,7 @@ The design rules, and where each is set:
 | Flat clusters on the ground: they give a good compass bearing but poor elevation, so the tracker gets only a coarse height | D-30, D-38 |
 | Alerts are decided by fixed, tested logic | `alerting/core.py` |
 | The language model only words messages and answers questions, and every number it writes is checked | design 13.6.6 |
+| Live tracking streams directly; Zetaris connects the stored data (about 1 s per query, too slow for the 10 Hz loop) | README section 10 |
 
 ## 2. What exists, by stage
 
@@ -78,6 +91,8 @@ The design rules, and where each is set:
 | Rating, danger zone, alert tiers, delivery | `alerting/rating.py`, `danger.py`, `core.py`, `delivery.py` | Built and tested; tabletop and replays | 5.12, 13.3, 13.6 |
 | Nemotron layer and site data over MCP | `alerting/agent.py`, `sitedata.py`, `sitedata_mcp.py`, `config.py` | Built. Runs Nemotron 3.5 Lightning on Anna's PC. Zetaris is a stand-in | 13.4, 13.6 |
 | UAE terrain tool (live demo) | `terra/` | Built. Full chain on real UAE terrain in 3D | README "Live demo" |
+| Border watch (operator screen) | `terra/border.py`, `terra/static/border.*`, `scripts/border_incidents.py`, `alerting/border.py` | Built. Whole land border, 6 simulated incidents replayed, border-crossing alerts | README section 10 |
+| Zetaris federation and Ask | `scripts/sensor_stores.py`, `scripts/border_ops.py`, `alerting/sitedata_zetaris.py`, `terra/federated.py`, `terra/ask.py` | Built. Local Zetaris connects 8 stores (6 sectors, fusion, operations); Nemotron answers from them | README section 10 |
 | Cluster hardware and firmware | — | Planned | 7, 9.6 |
 
 ## 3. The parts in detail
@@ -295,6 +310,10 @@ flowchart LR
 | `live/run.py` → screen and log | One JSON line per update: `t`, `p_drone`, `p_ground`, `tone`, `pitch_pct_s`, bearing |
 | alert core → delivery and Nemotron | Event dicts: `t`, `tier`, `to`, `text`, `source`, `numbers`. Logged as JSON lines |
 | `terra/server.py` ↔ browser | Scenario JSON (format in `terra/scenario.py`); result JSON with per-frame truth, CNN probability, bearings, screening, tracks, alerts and summary |
+| `scripts/border_incidents.py` → Border watch | `terra/data/incidents/<id>.json`: the incident replay at 5 Hz (tracks, CNN bits per cluster, bearings, alerts) with the simulated truth kept separate; `terra/data/border.json`: sectors and clusters (lon, lat, sector) |
+| incident runs → stores (`scripts/sensor_stores.py`) | `sector_<sector>`: `clusters`, `detections(cluster_id, ts, p_drone, heard, tone_hz)`, `bearings(cluster_id, ts, az_deg, el_deg, coh)`, one row per second. `fusion`: `incidents`, `tracks(…, lat, lon, height_agl_m, speed_m_s, heading_deg, sd_m)`, `alerts`. Timestamps on the watch clock (06:00 GST + t) |
+| stores → Zetaris → screen and Ask | Zetaris datasources `sensors_<sector>`, `fusion`, `borderops`; Lightning SQL over JDBC (`<source>.<table>`), about 1 s per query; `terra/federated.py` returns `{title, sources, sql, columns, rows}` |
+| Ask box → Nemotron | OpenAI-compatible chat to Nightshift (`LLM_BASE_URL`), with facts: tracks, danger, posts with their nearest shelters, units near the 3 most credible tracks, and the clusters first to hear (from Zetaris) |
 
 **Coordinates everywhere:** x east, y north, z up, in metres. The local frame is centred on the field (or, in the terrain tool, on the chosen point). Azimuth is measured from +x towards +y. Elevation is above the horizontal.
 
@@ -304,9 +323,9 @@ flowchart LR
 
 | Machine | Role |
 |---|---|
-| Linux desktop (RTX 4060 Ti 8 GB, 16 cores, 31 GB) | Development, rendering, the small model, direction finding, the terrain tool server, the alert layer. Heavy untested jobs run under `systemd-run` memory and CPU limits |
-| Anna's PC (Windows, RTX 3080 10 GB, shared) | CNN14 training (A, B, model 2) and half the rendering, all inside `C:\Users\pc\Joseph AI`. Low priority, a 240 W GPU cap and at most 3 data-loading workers. Jobs run as hidden scheduled tasks, because console windows get closed. It also serves **Nemotron 3.5 Lightning 30B-A3B** through Meterless Nightshift's bundled llama.cpp server (localhost only, with an API key) |
-| SSH tunnel (`nightshift-tunnel` user unit) | Desktop 127.0.0.1:18089 → Anna's llama-server, and 18088 → Nightshift's own API |
+| Linux desktop (RTX 4060 Ti 8 GB, 16 cores, 31 GB) | Development, rendering, the small model, direction finding, the terrain tool server (and Border watch), the alert layer. **Zetaris** in Docker (5 containers, capped at about 10 GB, using about 3 GB) plus `border-ops-db` and `sensor-db` (512 MB each). Nemotron Mini on Ollama as the fallback. Heavy untested jobs run under `systemd-run` memory and CPU limits |
+| Anna's PC (Windows, RTX 3080 12 GB, shared) | CNN14 training (A, B, model 2) and half the rendering, all inside `C:\Users\pc\Joseph AI`. Low priority, a 240 W GPU cap and at most 3 data-loading workers. Jobs run as hidden scheduled tasks, because console windows get closed. **Meterless Nightshift** runs here: its API routes Nemotron 3.5 Lightning through the NVIDIA provider. Its local runtime has no model lane yet. The self-hosted llama-server task (`nemotron_llama_server`, port 18080) is stopped, to leave the GPU to Nightshift |
+| SSH tunnel (`nightshift-tunnel` user unit) | Desktop 127.0.0.1:18088 → Nightshift's API (8088). 18089 → the stopped self-hosted llama-server |
 | "bigboy" disk (NTFS, on the desktop) | Bulk data: localisation scenes and the UAE elevation tiles, linked into `data/` |
 | GitHub `Quailworker/audiodrone` (private) | Code, docs and reference results. Model weights go in releases |
 
@@ -327,6 +346,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 | 2026-10-24 | **Model 2** (frequency-tracker channels) trained; not adopted. **UAE terrain tool** (live demo) | d667609, 83bd94d |
 | 2026-10-24 | **ARCHITECTURE.md** | 4f119a1 |
 | 2026-10-24 | **Frequency tracker rebuilt**; tracker-guided beamformer (chain v2, default in terra); Doppler EKF state (opt-in); live input (`live/`); Nemotron answer deadline with a facts fallback; cluster spacing study (`scripts/spacing_study.py`) | 9db6915 |
+| 2026-10-25 | **Border watch** (the whole land border, simulated incidents, border monitor); **Zetaris** running locally and connecting the sector, fusion and operations stores; **Meterless Nightshift** routing Nemotron 3.5 Lightning (NVIDIA provider); Ask box with a local Nemotron Mini fallback; `scripts/demo_check.sh` | (this commit) |
 
 **Who did what:**
 - **The owner (Joseph):** the concept, and the decisions marked [J] in design.md, including sim-only training, the drone classes, flat ground clusters, the false-alarm filter idea, and building on Meterless, Zetaris and Nemotron.
@@ -336,7 +356,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 ## 7. Conventions that keep it reproducible
 
 - **Seeds:** every scene is defined by its seed. The same seed gives bit-identical audio on the same platform, and audio within 1 LSB of 24-bit across Linux and Windows. `scripts/manifest.py verify` compares renders with `results/sim_v1_manifest.csv` (AGENTS.md steps 2–3).
-- **Labels and tests:** label versions are recorded in each scene's JSON, and tests pin the reference behaviour (`tests/`, 50 tests in 7 files).
+- **Labels and tests:** label versions are recorded in each scene's JSON, and tests pin the reference behaviour (`tests/`, 62 tests in 8 files).
 - **What stays out of git:**
   - **Bulk files:** data, models, runs and elevation tiles.
   - **Secrets:** API keys live in `~/.config/audiodrone/alerting.env` and on Anna's PC only.
@@ -348,7 +368,8 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 **Next steps:**
 1. **Field test:** build the first cluster, connect a mic and record a flyover with `live/run.py --record` (README section 9).
 2. **Decide on an early "approaching" alert tier** (owner). `results/spacing/` shows that warning time is limited by the take-cover rule, not by spacing: 0–18 s now, while detection comes 60–200 s ahead. Use 300–600 m spacing rather than 100 m.
-3. **Doppler as pair frequency differences** between clusters locked on the same line (`results/chain_v2/README.md`).
-4. **Connect Zetaris.**
+3. **Ghost tracks:** one drone becomes several track IDs (Liwa 22, Ghuwaifat 12). Tighter track births and merging, checked with the Zetaris all-sectors view.
+4. **Doppler as pair frequency differences** between clusters locked on the same line (`results/chain_v2/README.md`).
+5. **Nightshift's local runtime** (a Nemotron lane on the GPU PC), so operator questions never leave the site.
 
 **Model improvements are ranked in UPGRADES.md.** The cheapest is to compare model 2 with model 1 at a matched false-alarm rate.

@@ -1,6 +1,27 @@
-# Next steps (as of design v0.8.1, 2026-10-23)
+# Next steps (as of design v0.11, 2026-10-25)
 
 What to build next, in order. Details and reasons are in `design.md`; this page is the to-do list.
+
+## Now (after v0.11)
+
+**Done:**
+- Border watch (the whole land border, simulated incidents, border monitor);
+- Zetaris running locally and federating the stores;
+- Nemotron through Meterless Nightshift.
+
+**To do:**
+1. **Hackathon demo:** before each demo, run `bash scripts/demo_check.sh --start` (AGENTS.md step 11). Prepare a 2–3 minute walkthrough:
+   - start on the whole border;
+   - let auto-follow fly into Liwa (the drone heard 1 km out and tracked before it crossed);
+   - then Hatta (the honest limit: mountains);
+   - open ZETARIS (one query across separate databases);
+   - Ask a question.
+2. **Ghost tracks** (design Q49): tighten track births and merge tracks with the same course. Check the result with the Zetaris all-sectors view.
+3. **Field test** (design 14.7): a real cluster, a real flyover, `live/run.py --record`.
+4. **A Nemotron lane in Nightshift's local runtime** (Q50), so operator questions stay on site. Choose the model under Setup ▸ Runtime on the GPU PC.
+5. **Owner decisions:** the early "approaching" alert tier (13.7.5); sensor placement for warning in mountains and towns (Q51); D-28, Q17, Q18, Q47.
+
+The sections below are the earlier phase plan, kept as the record.
 
 ## How to start the next task on the Quail desktop
 
@@ -69,8 +90,8 @@ Uses the Phase 1 tracks. Instructions to be written after Phase 1 reports.
 **Built:** the Nemotron layer (tool calling; number, unit, name and time checks) and the site-data MCP contract.
 
 **Still to connect:**
-- **Meterless Nightshift:** installed on Anna's PC (2026-10-24). Nemotron 3.5 Lightning is served by its bundled llama.cpp server through an SSH tunnel. To use Nightshift's own routing instead, press "Start runtime" in its app.
-- **Zetaris:** needs access, i.e. an MCP endpoint or SQL to wrap; then set `SITE_MCP`.
+- **Meterless Nightshift: connected (2026-10-25).** The Nemotron layer and the Border watch Ask box call Nemotron 3.5 Lightning through Nightshift's API, using its NVIDIA provider (hosted). Nightshift's **local** runtime has no model lane yet. Pick the model under Setup ▸ Runtime on the GPU PC; it is needed before real personnel data is used.
+- **Zetaris: connected (2026-10-25).** It runs locally in Docker and federates the sector sensor stores, the fusion store and the operations store (README section 10).
 
 A local MCP server stands in for Zetaris until then; Nemotron Mini on Ollama is the LLM fallback.
 

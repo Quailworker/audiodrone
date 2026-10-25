@@ -98,13 +98,20 @@ def _collect_numbers(obj, out):
     return out
 
 
+FACT_TRACKS = 3                   # the facts-only answer lists the most credible tracks, then counts the rest
+
+
 def facts_answer(facts):
     """Fallback operator answer, worded by fixed code from the facts (every number is a system number)."""
     if not facts["tracks"]:
         return "[system facts, no model answer] No drone tracks at the moment."
     danger = {d["track_id"]: d["sites"] for d in facts["danger"]}
+    order = {"likely": 0, "possible": 1}
+    tracks = sorted(facts["tracks"], key=lambda tr: (order.get(tr["rating"], 2), -(tr.get("likelihood") or 0)))
+    shown, rest = tracks[:FACT_TRACKS], tracks[FACT_TRACKS:]
+    keep = {f"track {tr['track_id']}" for tr in shown}
     parts = []
-    for tr in facts["tracks"]:
+    for tr in shown:
         s = (f"track {tr['track_id']}: {tr['rating']}, {tr['height_m']} m high, {tr['speed_m_s']} m/s, "
              f"at {tr['x_east_m']} m east {tr['y_north_m']} m north")
         hit = [x for x in danger.get(tr["track_id"], []) if x["threatened"]]
@@ -113,6 +120,17 @@ def facts_answer(facts):
                 f"{x['site']} (arrives in {x['seconds_to_arrival']} s)" if x["seconds_to_arrival"] is not None
                 else f"{x['site']} (passes {x['closest_pass_m']} m away)" for x in hit)
         parts.append(s)
+    if rest:
+        parts.append(f"{len(rest)} more track(s) rated {', '.join(sorted({tr['rating'] for tr in rest}))}, not listed")
+    for p in facts.get("posts", []):                        # site data, when the caller looked it up (terra/ask.py)
+        sh = p.get("nearest_shelter")
+        if sh:
+            parts.append(f"{p['post']}: nearest shelter {sh['name']}, {sh['distance_m']} m ({sh['walk_min']} min walk)")
+    for k, v in facts.items():
+        if k.startswith("units_within_"):
+            for tr, units in v.items():
+                if units and tr in keep:
+                    parts.append(f"near {tr}: " + ", ".join(f"{u['unit']} ({u['distance_m']} m)" for u in units))
     return "[system facts, no model answer] " + "; ".join(parts) + "."
 
 
@@ -120,7 +138,9 @@ class NemotronLayer:
     def __init__(self, core, cfg: Config | None = None, log=None):
         self.core = core
         self.cfg = cfg or Config()
-        self.client = OpenAI(base_url=self.cfg.llm_base_url, api_key=self.cfg.llm_api_key, timeout=self.cfg.llm_timeout_s)
+        # no client retries: a retry restarts the timeout, so 2 retries tripled the answer deadline (183 s for 45 s)
+        self.client = OpenAI(base_url=self.cfg.llm_base_url, api_key=self.cfg.llm_api_key, timeout=self.cfg.llm_timeout_s,
+                             max_retries=0)
         self.log = log                        # a delivery sink for the audit trail (LogSink)
         self.stack = AsyncExitStack()
         self.session = None
@@ -201,7 +221,7 @@ class NemotronLayer:
             raise TimeoutError("deadline passed")
         return await asyncio.wait_for(asyncio.to_thread(
             self.client.chat.completions.create, model=self.cfg.llm_model, temperature=0.2,
-            max_tokens=self.cfg.llm_max_tokens, **kw), left)
+            max_tokens=self.cfg.llm_max_tokens, extra_body=self.cfg.llm_extra_body or None, **kw), left)
 
     async def chat(self, user, tools=None, max_rounds=6, context_numbers=(), deadline=None):
         """Run Nemotron with tools until it answers. Returns (answer, tool_log, allowed_numbers).
@@ -222,6 +242,9 @@ class NemotronLayer:
                     args = json.loads(c.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
+                # small models sometimes wrap the arguments: {"type": name, "arguments": {...}}
+                if isinstance(args, dict) and isinstance(args.get("arguments"), dict) and set(args) <= {"type", "name", "arguments"}:
+                    args = args["arguments"]
                 try:
                     res = await self.call_tool(c.function.name, args)
                 except Exception as e:                      # a broken tool call must not crash the layer
@@ -242,8 +265,9 @@ class NemotronLayer:
     # --- jobs ----------------------------------------------------------------------------
     def known_names(self):
         """Every shelter, site and group name the site data knows (for the name check)."""
-        names = {x["name"] for x in self.core.site.list_shelters()} | {x["name"] for x in self.core.site.list_sites()}
-        return names | {g["name"] for g in self.core.site.d["groups"]} if hasattr(self.core.site, "d") else names
+        site = self.core.site
+        names = {x["name"] for x in site.list_shelters()} | {x["name"] for x in site.list_sites()}
+        return names | {g["name"] for g in site.list_groups()} if hasattr(site, "list_groups") else names
 
     async def personalise(self, alert, group):
         """A follow-up for one group after the core's alert: which shelter and how long they have.
@@ -301,22 +325,25 @@ class NemotronLayer:
     def unknown_names(self, text):
         """Shelter/site-like names in the text ("Shelter X", "X Shelter", "Site X") that the site data does not have."""
         known = {n.lower() for n in self.known_names()}
-        found = re.findall(r"\b(?:[Ss]helter\s+[A-Z0-9]\w*|[A-Z]\w+\s+[Ss]helter|[Ss]ite\s+[A-Z0-9]\w*)", text)
+        ident = r"[A-Z0-9](?:[\w/-]*\w)?"                 # "E", "OMN-17/1"; not a trailing hyphen or slash
+        found = re.findall(rf"\b(?:[Ss]helter\s+{ident}|[A-Z]\w+\s+Shelter|[Ss]ite\s+{ident})", text)   # "Nearest shelter" is not a name
         return [f for f in found if f.lower() not in known]
 
-    async def answer(self, question):
+    async def answer(self, question, extra_facts=None):
         """Operator question -> (answer or None, tool log, unverified). The current tracks and their danger
         zones are fetched first and given as facts. Operators are trained users, so an answer is returned
         even when it contains numbers or names the facts and tool results do not support (a sum such as
         "85 people", or an invented value); those are listed in `unverified` for the display to flag.
-        Messages to the public (personalise) stay strict.
+        Messages to the public (personalise) stay strict. `extra_facts` (a dict) is added to the facts, and its
+        numbers count as supported.
 
         The facts already answer most questions, so only 3 tool rounds are allowed, and the whole answer has
         answer_deadline_s. If the model fails or runs out of time, the answer is the facts themselves, worded
         by fixed code (`facts_answer`), marked "[system facts, no model answer]"."""
         t0 = time.time()
         facts = {"tracks": [self._track_view(t) for t in self.core.latest],
-                 "danger": [{"track_id": t, "sites": self._danger_view(t)["sites"]} for t in self.core.latest]}
+                 "danger": [{"track_id": t, "sites": self._danger_view(t)["sites"]} for t in self.core.latest],
+                 **(extra_facts or {})}                      # e.g. site data already looked up for this situation
         prompt = f"Facts (current system state): {json.dumps(facts)}\nOperator question: {question}\nAnswer from the facts only."
         try:
             text, log, allowed = await self.chat(prompt, max_rounds=3, context_numbers=_collect_numbers(facts, []),
