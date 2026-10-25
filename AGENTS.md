@@ -5,6 +5,8 @@ Instructions for a coding agent (or a person) to go from a fresh clone to verifi
 - Steps 1–5 check the CNN models.
 - Step 6 (optional) replicates training.
 - Step 7 sets up and checks the live demo, the UAE terrain tool.
+- Step 8 checks live input (the field-test tool).
+- Step 9 sets up Border watch with Zetaris; step 10 connects Nemotron through Meterless Nightshift; step 11 is the pre-demo check.
 
 **Start with ARCHITECTURE.md** for the map of the system: every stage, the code it lives in, the data passed between stages, the machines, and how each part was built.
 
@@ -179,6 +181,70 @@ If it fails:
 
 Expected on `DRONE_001.wav` (Svanström et al. 2021, CC0, Zenodo 5500576, `Data/Audio` unpacked to `data/real/svanstrom/audio`): the CNN flags drone from about 1.5 s on, and the tracker holds a tone near 172–175 Hz from about 3.5 s. With a microphone, `--list` shows the devices; always pass `--record` in the field so the audio is kept (test data only, never training, D-25). See README section 9.
 
+## Step 9: Border watch, with Zetaris
+
+The screen runs without Zetaris: open `http://127.0.0.1:8790/border` with the Step 7 server. Without Zetaris, site data falls back to each incident's own post, and the ZETARIS drawer reports that it is unavailable. The border geometry and the six incident replays are in git (`terra/data/`).
+
+**Zetaris (local Docker, Linux).** You need Docker with the compose plugin, Java 8+, about 15 GB of free disk on the Docker filesystem, and the hackathon's Zetaris download.
+1. Install: `sudo apt-get install -y docker.io docker-compose-v2 openjdk-17-jre-headless && sudo usermod -aG docker $USER`. Until you log out and in again, wrap Docker commands as `sg docker -c "…"`.
+2. Sign in to the registry with the `docker login zetarishackathon.azurecr.io …` command from the Zetaris Cloud "Run locally" page. It carries a credential: don't paste it into logs, chats or the repo.
+3. Unzip `zetaris-platform.zip` to `~/zetaris/`, then `cp deploy/zetaris/docker-compose.override.yml ~/zetaris/zetaris-platform/` (memory caps, UI on localhost only).
+4. In `~/zetaris/zetaris-platform`, run `./preflight.sh`, then `docker compose pull`, then `docker compose up -d`, then `./verify.sh`. Success: `All 9 checks passed`.
+
+**Our stores, then Zetaris on top** (README section 10 has the two `docker run` lines for `border-ops-db` and `sensor-db`):
+
+```bash
+.venv/bin/pip install JayDeBeApi==1.2.3
+.venv/bin/python scripts/border_ops.py load && .venv/bin/python scripts/border_ops.py register
+.venv/bin/python scripts/sensor_stores.py load && .venv/bin/python scripts/sensor_stores.py register   # needs runs_border/ (scripts/border_incidents.py)
+.venv/bin/python -m pytest -q tests/test_border.py
+.venv/bin/python scripts/sensor_stores.py check
+```
+
+Success:
+- `border_ops.py load` reports 47 posts, 84 shelters and 47 units;
+- `sensor_stores.py load` reports 135 clusters, 32,768 detection rows, 2,654 track rows and 120 alerts;
+- `register` lists `sensors_mus02 … sensors_sau15` and `fusion`;
+- the tests pass;
+- `check` prints row counts for six `sensors_*.detections` tables and `fusion.incidents: 6`, all read through Zetaris.
+
+Zetaris's SQL dialect (this build) uses:
+- `CREATE DATASOURCE <name> DESCRIBE BY "<letters, digits, _ . - , only>" OPTIONS (jdbcdriver, jdbcurl, username, password)`;
+- then `REGISTER DATASOURCE TABLES FROM <name>`;
+- then query `<name>.<table>`.
+
+The open-source Lightning syntax (`REGISTER … JDBC DATASOURCE … NAMESPACE`) does not parse.
+
+Ground rules:
+- Passwords and tokens live only in `~/.config/audiodrone/alerting.env` (mode 600). Never print or commit them.
+- Neither database publishes a port. Zetaris reaches them by name on the `zetaris_default` Docker network.
+- Keep the memory caps in `docker-compose.override.yml`.
+- Live tracking never goes through Zetaris: a query takes about 1 s.
+
+## Step 10: Nemotron through Meterless Nightshift
+
+Nightshift runs on the Windows GPU PC. Its Linux build is ARM64-only. Its API listens on `127.0.0.1:8088` there; from the Linux desktop it is `127.0.0.1:18088`, through the `nightshift-tunnel` SSH tunnel.
+1. On the GPU PC, open Nightshift and add an NVIDIA provider, or choose a local model under Setup ▸ Runtime.
+2. Copy its proxy token (`%LOCALAPPDATA%\ai.meterless.runtime\proxy-token`) into `alerting.env` without printing it.
+3. Set in `alerting.env`:
+   - `LLM_BASE_URL=http://127.0.0.1:18088/v1`
+   - `LLM_API_KEY=<the token>`
+   - `LLM_MODEL=nvidia/nemotron-3.5-lightning-30b-a3b`
+   - `LLM_MAX_TOKENS=1500`
+   - `LLM_EXTRA_BODY={"chat_template_kwargs": {"enable_thinking": false}}`
+
+Without the last setting, Nemotron spends a short reply on reasoning and Nightshift returns `empty_response`. `GET /v1/models` with the token lists what Nightshift offers.
+
+The fallback is Nemotron Mini through local Ollama (`ollama pull nemotron-mini`). The Ask box uses it when Nightshift does not answer within 3 s.
+
+## Step 11: before a demo
+
+```bash
+bash scripts/demo_check.sh --start
+```
+
+It starts the terra server and the containers if they are down, then checks Zetaris, the federation, the tunnel, a Nemotron reply through Nightshift and the fallback. Success: every line `OK` and the last line `READY: open http://127.0.0.1:8790/border`. Each `FAIL` line says what to do.
+
 ## Known issues (design.md 5.9.4)
 
 - Electric drones are only detected about 76 % of the time at 0–25 m in sim. This is probably the metric counting ignored or masked frames; under investigation.
@@ -190,3 +256,7 @@ Expected on `DRONE_001.wav` (Svanström et al. 2021, CC0, Zenodo 5500576, `Data/
   - Copernicus is a surface model, so buildings count as terrain.
   - Flat clusters give compass bearings (median 4–30° error per cluster in the examples) but poor elevation (about 45° estimated against 15° true). The tool therefore draws bearings level.
   - With clusters 100–300 m apart, a drone more than about 500 m out often gets several short tracks and late or wrong "over it now" alerts.
+- Border watch (simulated incidents):
+  - **Ghost tracks:** one drone becomes several track IDs (Liwa 22, Ghuwaifat 12), some at implausible heights. The border monitor reports each intruder once per sector, but the Zetaris all-sectors view and the event log show the fragments.
+  - **No early warning in two places:** a quiet electric drone was heard only at the border in the Hajar mountains (Hatta) and only 0.8 km inside in town noise (Al Ain). The two-stroke incidents were heard 1–1.4 km out and tracked before they crossed.
+  - The NVIDIA provider in Nightshift is hosted, so Ask questions and their facts leave the machine. That is fine for the simulated demo data; real personnel data needs Nightshift's local runtime.

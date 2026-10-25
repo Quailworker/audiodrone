@@ -159,6 +159,7 @@ def test_name_guard():
     assert layer.unknown_names("Go to Shelter B now.") == []
     assert layer.unknown_names(normalise("Go to Shelter\u202fE, 150\u202fm.")) == []        # typographic spaces
     assert layer.unknown_names("Go to West Shelter now.") == ["West Shelter"]
+    assert layer.unknown_names("Go to Shelter OMN-17/1.") == ["Shelter OMN-17/1"]     # whole id, not "Shelter OMN"
 
 
 # --- site-data MCP server (the Zetaris slot) ------------------------------------------------
@@ -231,3 +232,36 @@ def test_operator_answer_falls_back_to_facts_on_timeout():
     assert took < 1.2, took
     assert text.startswith("[system facts, no model answer]") and "track 1" in text and unverified == []
     assert facts_answer({"tracks": [], "danger": []}).endswith("No drone tracks at the moment.")
+
+
+def test_wrapped_tool_arguments_are_unwrapped():
+    """Small models sometimes send {"type": name, "arguments": {...}}: the tool must get the inner arguments."""
+    from types import SimpleNamespace as NS
+    core, _ = _core()
+    layer = NemotronLayer(core)
+    replies = iter([
+        NS(choices=[NS(message=NS(content="", tool_calls=[NS(id="c1", function=NS(
+            name="nearest_shelter", arguments=json.dumps({"type": "nearest_shelter", "arguments": {"x": 10, "y": 20}})))]))]),
+        NS(choices=[NS(message=NS(content="Go to Shelter A.", tool_calls=None))]),
+    ])
+    layer.client.chat.completions.create = lambda **kw: next(replies)
+    seen = []
+
+    async def tool(name, args):
+        seen.append(args)
+        return {"name": "Shelter A"}
+    layer.call_tool = tool
+    text, _, _ = asyncio.run(layer.chat("Where to shelter?"))
+    assert seen == [{"x": 10, "y": 20}] and text == "Go to Shelter A."
+
+
+def test_facts_answer_lists_the_most_credible_tracks_only():
+    from alerting.agent import FACT_TRACKS, facts_answer
+    tracks = [{"track_id": i, "rating": "possible", "likelihood": 0.1 * i, "height_m": 100, "speed_m_s": 10,
+               "x_east_m": 0, "y_north_m": 0} for i in range(8)]
+    tracks[2]["rating"] = "likely"
+    text = facts_answer({"tracks": tracks, "danger": [], "units_within_3000_m_of_each_track": {
+        "track 2": [{"unit": "Patrol A", "distance_m": 300}], "track 0": [{"unit": "Patrol B", "distance_m": 900}]}})
+    assert text.index("track 2:") < text.index("track 7:")               # likely first, then by likelihood
+    assert f"{8 - FACT_TRACKS} more track(s)" in text
+    assert "Patrol A" in text and "Patrol B" not in text                  # units only for the tracks listed

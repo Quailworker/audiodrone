@@ -9,6 +9,8 @@
     alerts      rating, danger zone and alert tiers (alerting/core.py), height above the local ground
 
 scenario["chain"]: "v2" (default) or "v1" (the v0.9 chain: CNN + whole-band beamformer, directions only).
+scenario["border"]: optional border lines in local metres, UAE on the left ([{"sector", "neighbour", "xy"}]);
+adds border_watch / border_cross alerts (alerting/border.py).
 
 A cluster's direction is used in a frame when its CNN says drone (p >= P_DET over the 0.1 s frame) and
 the beamformer's coherence passes COH_GATE, the same gate as Phase 1.
@@ -21,6 +23,7 @@ import numpy as np
 import soundfile as sf
 import torch
 
+from alerting.border import BorderMonitor
 from alerting.core import AlertCore, Detection, TrackSnapshot
 from alerting.delivery import ApprovalQueue, Delivery, LogSink
 from alerting.sitedata import LocalSiteData
@@ -112,6 +115,7 @@ def run(scn, out_dir, progress=print, workers=6):
     (out_dir / "alerts.jsonl").unlink(missing_ok=True)                             # a rerun into the same folder starts afresh
     log = LogSink(out_dir / "alerts.jsonl")
     core = AlertCore(site, Delivery([log]), ApprovalQueue(auto_after_s=15.0), cluster_xy=centres[:, :2])
+    border = BorderMonitor(scn["border"], core._send, core.rate_track) if scn.get("border") else None
     heard_since, history, frames = None, [], []
     for i, t in enumerate(tf):
         meas = [(k, U[k, i].astype(float)) for k in range(K) if use[k, i]]
@@ -133,6 +137,8 @@ def run(scn, out_dir, progress=print, workers=6):
             snaps.append(TrackSnapshot(tr.id, s, tr.P.copy(), tr.n_upd, n_det, pmax, detected_s, duty))
         dets = [] if snaps or not heard else [Detection(int(np.argmax(p_cnn[:, i])), pmax, detected_s, duty)]
         core.tick(float(t), snaps, dets)
+        if border is not None:
+            border.update(float(t), snaps)
         frames.append({"t": round(float(t), 2),
                        "tracks": [{"id": tr.id, "x": round(float(tr.s[0]), 1), "y": round(float(tr.s[1]), 1),
                                    "z": round(float(tr.s[2]), 1), "vx": round(float(tr.s[3]), 2),

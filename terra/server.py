@@ -1,7 +1,7 @@
 """UAE terrain tool: pick an area, place mic clusters, protected sites and drone flights in 3D, run the
-whole chain on the rendered sound and play it back.
+whole chain on the rendered sound and play it back. Also serves the Border watch screen (/border).
 
-    .venv/bin/python -m terra.server [--port 8790]        then open http://127.0.0.1:8790
+    .venv/bin/python -m terra.server [--port 8790]        then open http://127.0.0.1:8790 (or /border)
 
 Runs are kept under runs_terra/<id>/ (scenario.json, result.json, alerts.jsonl, cluster<k>.wav).
 One run at a time; the rendering uses several processes, the CNN and beamformer the GPU.
@@ -10,6 +10,7 @@ import argparse
 import base64
 import io
 import json
+import re
 import threading
 import time
 import traceback
@@ -20,6 +21,8 @@ import numpy as np
 import uvicorn
 from PIL import Image
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
@@ -31,6 +34,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).resolve().parent / "static"
 EXAMPLES = Path(__file__).resolve().parent / "examples"
 RUNS = ROOT / "runs_terra"
+BORDER_DATA = Path(__file__).resolve().parent / "data"
 PRESETS = [
     {"name": "Jebel Hafeet, Al Ain", "lat": 24.06, "lon": 55.78, "half_m": 4000},
     {"name": "Jebel Jais, Ras Al Khaimah", "lat": 25.95, "lon": 56.13, "half_m": 4000},
@@ -185,6 +189,99 @@ async def index(request):
     return FileResponse(STATIC / "index.html")
 
 
+# ---- Border watch screen (terra/static/border.html): whole land border, incidents replayed from the chain
+_theatre = None
+
+
+async def border_page(request):
+    return FileResponse(STATIC / "border.html")
+
+
+async def api_theatre(request):
+    """Heights of the whole UAE on a 0.01 degree grid (rows north-up) for the theatre map."""
+    global _theatre
+    if _theatre is None:
+        H, (lo0, la0, lo1, la1) = overview(step_deg=0.01)
+        _theatre = {"bounds": [lo0, la0, lo1, la1], "step": 0.01, "rows": H.shape[0], "cols": H.shape[1],
+                    "h": base64.b64encode(np.ascontiguousarray(H, np.float32).tobytes()).decode()}
+    return JSONResponse(_theatre)
+
+
+async def api_border(request):
+    return FileResponse(BORDER_DATA / "border.json", media_type="application/json")
+
+
+async def api_incidents(request):
+    rows = []
+    for f in sorted((BORDER_DATA / "incidents").glob("*.json")):
+        d = json.loads(f.read_text())
+        tiers = [a["tier"] for a in d["alerts"]]
+        rows.append({k: d[k] for k in ("id", "name", "sector", "neighbour", "lat", "lon", "half_m", "t0", "duration")}
+                    | {"alerts": len(tiers), "crossed": "border_cross" in tiers})
+    return JSONResponse(sorted(rows, key=lambda r: r["t0"]))
+
+
+def _incident(iid):
+    f = BORDER_DATA / "incidents" / f"{iid}.json"
+    if "/" in iid or ".." in iid or not f.exists():
+        return None
+    return json.loads(f.read_text())
+
+
+async def api_sitedata(request):
+    """Posts, shelters and units around an incident, read through Zetaris (terra/ask.py)."""
+    from starlette.concurrency import run_in_threadpool
+
+    from .ask import site_data
+    inc = _incident(request.path_params["iid"])
+    if inc is None:
+        return JSONResponse({"error": "unknown incident"}, status_code=404)
+    return JSONResponse(await run_in_threadpool(site_data, inc))
+
+
+async def api_ask(request):
+    """Operator question about an incident at replay time t: {"id", "t", "question"} -> Nemotron's answer."""
+    from .ask import ask
+    q = await request.json()
+    inc = _incident(str(q.get("id", "")))
+    question = str(q.get("question", "")).strip()[:500]
+    if inc is None or not question:
+        return JSONResponse({"error": "need a known incident id and a question"}, status_code=400)
+    try:
+        return JSONResponse(await ask(inc, float(q.get("t", 0.0)), question))
+    except Exception as e:  # noqa: BLE001 - shown to the operator, never kills the server
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+
+
+async def api_federated(request):
+    """A question across the separate stores, answered by one Zetaris query (terra/federated.py)."""
+    from starlette.concurrency import run_in_threadpool
+
+    from alerting.config import _load_env_file
+
+    from .federated import QUERIES
+    q, iid = request.query_params.get("q", ""), request.query_params.get("id", "")
+    fn = QUERIES.get(q)
+    if fn is None:
+        return JSONResponse({"error": f"unknown query; one of {sorted(QUERIES)}"}, status_code=400)
+    _load_env_file()
+    try:
+        return JSONResponse(await run_in_threadpool(fn) if q == "overview" else await run_in_threadpool(fn, iid))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:  # noqa: BLE001 - Zetaris down or a query error: shown on the screen
+        msg = re.findall(r"<<<(.*?)>>>", str(e))
+        return JSONResponse({"error": f"Zetaris query failed: {msg[0] if msg else type(e).__name__}"}, status_code=502)
+
+
+async def api_incident(request):
+    iid = request.path_params["iid"]
+    f = BORDER_DATA / "incidents" / f"{iid}.json"
+    if "/" in iid or ".." in iid or not f.exists():
+        return JSONResponse({"error": "unknown incident"}, status_code=404)
+    return FileResponse(f, media_type="application/json")
+
+
 app = Starlette(routes=[
     Route("/", index),
     Route("/api/overview", api_overview),
@@ -194,8 +291,16 @@ app = Starlette(routes=[
     Route("/api/job/{job_id}/audio/{k:int}", api_audio),
     Route("/api/runs", api_runs),
     Route("/api/examples", api_examples),
+    Route("/border", border_page),
+    Route("/api/theatre", api_theatre),
+    Route("/api/border", api_border),
+    Route("/api/incidents", api_incidents),
+    Route("/api/incident/{iid}", api_incident),
+    Route("/api/sitedata/{iid}", api_sitedata),
+    Route("/api/ask", api_ask, methods=["POST"]),
+    Route("/api/federated", api_federated),
     Mount("/static", StaticFiles(directory=STATIC), name="static"),
-])
+], middleware=[Middleware(GZipMiddleware, minimum_size=2048)])
 
 
 def main():

@@ -9,10 +9,18 @@ Acoustic drone detection: a scenario simulator that renders what microphones hea
 - **UPGRADES.md** lists where the best model falls short, ranked, and the planned upgrades.
 - **results/real_world/REAL_TESTS.md** has the tests on public real drone and non-drone recordings, with suggestions to improve the model.
 - **Live demo:** the UAE terrain tool (`terra/`) places mic clusters and drone flights on real UAE terrain in 3D and runs the whole chain. See [Live demo](#live-demo) below.
+- **Border watch** (`/border`): the operator screen for the whole UAE land border. **Zetaris** connects the stored sensor, fusion and operations data, and **Nemotron through Meterless Nightshift** answers operator questions. See [section 10](#10-border-watch-zetaris-and-nemotron); `bash scripts/demo_check.sh` checks everything is up.
 - **results/loc_v1/** has the Phase 1 localisation results (direction finding, tracking, tetrahedron vs flat clusters, real IDMT check); `tasks/phase1_localisation_REPORT.md` summarises them.
 - This README covers how to replicate the published dataset, models and results.
 
-Status (2026-10-24, later): the frequency tracker is rebuilt (`loc/freqtrack.py`, `results/freqtrack/`). It now guides the beamformer in place of the true shaft rates (chain v2), and tracking with it matches the oracle (`results/chain_v2/`). Live input from a sound card is in `live/` (section 9). Doppler in the tracker is built but off by default, because it made tracking worse on full scenes; `results/chain_v2/README.md` explains why and what to build instead. Cluster spacing study: `results/spacing/`.
+Status (2026-10-25):
+- **Border watch** is the operator screen: the 1,024 km land border, 3,395 clusters, and six simulated incidents replayed through the full chain, with "near the border" and "crossed the border" alerts.
+- **Zetaris** runs locally in Docker and connects eight separate stores: six sector sensor stores, the fusion store (tracks and alerts) and the operations store (posts, shelters, units).
+- **Nemotron 3.5 Lightning** answers through **Meterless Nightshift**, falling back to Nemotron Mini locally.
+- **Simulation shows** that two-stroke drones are heard 1–1.4 km before the border and tracked before they cross. A quiet electric drone in the Hajar mountains or in Al Ain's town noise is heard only at or past the line.
+- **Weakness:** tracks fragment into several IDs ("ghost tracks"), which shows up plainly in the Zetaris all-sectors view.
+
+Earlier status (2026-10-24, later): the frequency tracker is rebuilt (`loc/freqtrack.py`, `results/freqtrack/`). It now guides the beamformer in place of the true shaft rates (chain v2), and tracking with it matches the oracle (`results/chain_v2/`). Live input from a sound card is in `live/` (section 9). Doppler in the tracker is built but off by default, because it made tracking worse on full scenes; `results/chain_v2/README.md` explains why and what to build instead. Cluster spacing study: `results/spacing/`.
 
 Earlier status (2026-10-24): the UAE terrain tool runs the full chain (CNN detection, direction finding, tracking, alerts) on rendered sound over real terrain; model 2 (frequency-tracker input channels, `results/M2_logf_comb/`) trained but is not an upgrade at the standard threshold (fewer false alarms, shorter detection range), so model 1 (`B_logf`) stays the default.
 
@@ -78,6 +86,16 @@ Untick **Model the terrain** to rerun the same layout on flat ground and compare
 
 What the terrain model does and does not include is in [section 8](#8-uae-terrain-tool).
 
+### Border watch (operator screen)
+
+Open **http://127.0.0.1:8790/border** with the same server. It shows the whole UAE land border in 3D with a sensor line along it, and replays six simulated incidents through the real detection chain. It plays by itself, and flies to each incident as it happens. Section 10 covers the data behind it, Zetaris and the Ask box.
+
+The screen works on its own. The ZETARIS drawer and the Ask box use Zetaris, Meterless and Nemotron when they are set up (section 10). Before a demo, run:
+
+```bash
+bash scripts/demo_check.sh --start    # starts what it safely can, checks the rest; ends with "READY" or what to fix
+```
+
 ## Repo layout
 
 | Path | Contents |
@@ -116,13 +134,21 @@ What the terrain model does and does not include is in [section 8](#8-uae-terrai
 | `live/run.py` | Live input for the field test: sound card or replayed WAV, CNN + frequency tracker + bearing, records the audio |
 | `scripts/run_chain_v2.sh` | Chain v2 evaluation on the flat-cluster scenes (tracker-guided beamformer, real trigger, Doppler) |
 | `scripts/spacing_study.py` | Cluster spacing study on flat ground (results in `results/spacing/`) |
-| `tests/` | pytest unit tests: direction finding, tracking (with Doppler), rendering, alerting, terrain, live input |
+| `tests/` | pytest unit tests: direction finding, tracking (with Doppler), rendering, alerting, terrain, live input, frequency tracker, border watch and Zetaris |
+| `terra/border.py`, `terra/data/border.json` | UAE land border (Natural Earth, 42 sectors) and the cluster deployment along it |
+| `terra/static/border.*`, `terra/data/incidents/` | Border watch screen, and the six incident replays it plays |
+| `scripts/border_incidents.py` | Renders the incidents on the terrain and runs them through the chain |
+| `alerting/border.py` | Border monitor: "near the border" and "crossed the border" alerts from the tracks |
+| `scripts/sensor_stores.py`, `scripts/border_ops.py` | The separate stores (sector sensors, fusion, operations), loaded and registered in Zetaris |
+| `alerting/sitedata_zetaris.py`, `terra/federated.py`, `terra/ask.py` | Site data read through Zetaris; cross-store queries; the Ask box (Nemotron) |
+| `deploy/zetaris/docker-compose.override.yml` | Our memory caps and localhost-only UI for the local Zetaris stack |
+| `scripts/demo_check.sh` | Checks (and starts) everything the demo needs |
 | `results/loc_v1/` | Localisation results: `summary.json`, `summary.md`, figures, `idmt/` |
 | `alerting/` | System layer: `rating.py` (D-32), `danger.py` (13.3/13.6.4), `core.py` (fixed-logic alerts), `delivery.py`, `agent.py` (Nemotron), `sitedata.py` + `sitedata_mcp.py` (Zetaris slot), `config.py`, `replay.py`, `demo.py`, `eval_rating.py` |
 | `results/system_demo/` | Alert timelines from replays and the tabletop, rating evaluation |
 | `results/sim_v1_manifest.csv` | One row per scene (length, level, sources, label counts) to check a re-render |
 
-Not in git (see `.gitignore`): `data/` (rendered scenes, 26 GB), `weights/` (CNN14 checkpoint), `models/` and `runs/` (trained weights).
+Not in git (see `.gitignore`): `data/` (rendered scenes, 26 GB), `weights/` (CNN14 checkpoint), `models/` and `runs/` (trained weights), `runs_terra/` and `runs_border/` (tool and incident runs with audio). `terra/data/` is in git.
 
 ## 1. Setup
 
@@ -321,6 +347,61 @@ One line every 0.5 s (GPU) or 1 s (CPU):
 - With `--channels 4 --cluster flat`: azimuth, elevation and coherence from the tracker-guided beamformer.
 
 The same records go to a JSONL log next to the recording. Input comes through PortAudio (`pip install sounddevice` plus the system PortAudio library) when available, else `arecord` on Linux. If the analysis falls behind real time it skips updates but never stops recording. `--gain-db` adjusts the level reaching the CNN.
+
+## 10. Border watch, Zetaris and Nemotron
+
+**The screen** (`terra/static/border.*`, served at `/border`):
+- **Theatre:** the 1,024 km UAE land border (Natural Earth, 42 sectors) and 3,395 flat mic clusters, in two rows 300 m and 900 m inside it, 600 m apart (`terra/border.py`).
+- **Incidents:** six simulated incidents replayed on one watch clock. Each was rendered on the real terrain at a border point, heard by the deployed clusters there, and run through the full chain (`scripts/border_incidents.py`). The border monitor (`alerting/border.py`) adds "near the border" and "crossed the border" alerts.
+- **Zoomed in:** clicking an incident opens a 3D replay with clusters, bearings, tracks, alerts and an after-action line. SIM TRUTH shows where the drone really was.
+
+**How the data fits together.** Live tracking streams directly (cluster to tracker to alerts), because a Zetaris query takes about a second. Everything the system stores is kept in separate databases, as separate servers would keep it, and **Zetaris connects them**:
+
+| Zetaris datasource | Database | Holds |
+|---|---|---|
+| `sensors_<sector>` (6) | `sensor-db` / `sector_<sector>` | That sector's clusters, and what each heard per second: CNN probability, tone, bearing |
+| `fusion` | `sensor-db` / `fusion` | Tracks, alerts, incidents |
+| `borderops` | `border-ops-db` | Posts, shelters, patrol and garrison units (demo data) |
+
+The **ZETARIS** button opens questions answered by one query across these databases (`terra/federated.py`), with the SQL shown:
+- all sectors at once;
+- which clusters heard the drone first, and from what bearing;
+- seconds heard against seconds tracked;
+- units near the tracks.
+
+The **Ask** box sends an operator question to Nemotron (`terra/ask.py`), with the situation at that moment of the replay. It answers from Zetaris data and shows which model answered and where the data came from. It uses Nemotron 3.5 Lightning **through Meterless Nightshift** when Nightshift answers quickly, otherwise Nemotron Mini through local Ollama.
+
+**Meterless setup:** Nightshift runs on the Windows GPU PC. Its API is on `127.0.0.1:8088` there, reached from here through the SSH tunnel on `18088`. Its NVIDIA provider serves `nvidia/nemotron-3.5-lightning-30b-a3b`. In `alerting.env`:
+- `LLM_BASE_URL=http://127.0.0.1:18088/v1`;
+- `LLM_API_KEY` = Nightshift's proxy token (`%LOCALAPPDATA%\ai.meterless.runtime\proxy-token` on that PC);
+- `LLM_MODEL=nvidia/nemotron-3.5-lightning-30b-a3b`;
+- `LLM_MAX_TOKENS=1500`;
+- `LLM_EXTRA_BODY={"chat_template_kwargs": {"enable_thinking": false}}`. Without it, a short reply is all reasoning and comes back empty.
+
+The NVIDIA provider is hosted, so questions and their facts leave the machine. For real personnel data, use Nightshift's local runtime instead. Names and numbers not found in the data are flagged.
+
+**Set up Zetaris locally (Linux, about 30 minutes).** You need Docker with the compose plugin, Java 8+, about 15 GB of free disk, and the hackathon's Zetaris download:
+1. Sign in to their registry with the `docker login …` command from the Zetaris Cloud "Run locally" page.
+2. Download `zetaris-platform.zip` from the same page and unzip it into `~/zetaris/`.
+3. Copy our safety override into that folder: `cp deploy/zetaris/docker-compose.override.yml ~/zetaris/zetaris-platform/`. It sets memory caps (about 10 GB in total, no swap) and keeps the web UI on localhost only, which matters because the bundle ships a default admin password.
+4. Run `./preflight.sh`, then `docker compose pull`, then `docker compose up -d`, then `./verify.sh`. All 9 checks should pass.
+5. Then, from this repo:
+
+```bash
+.venv/bin/pip install JayDeBeApi==1.2.3
+# private settings (never commit): ~/.config/audiodrone/alerting.env
+#   ZETARIS_USER=admin@zetaris.com  ZETARIS_PASSWORD=...  BORDER_OPS_DB_PASSWORD=...  SENSOR_DB_PASSWORD=...
+docker run -d --name border-ops-db --network zetaris_default --memory 512m -e POSTGRES_USER=borderops \
+  -e POSTGRES_PASSWORD="$BORDER_OPS_DB_PASSWORD" -e POSTGRES_DB=borderops -v border-ops-data:/var/lib/postgresql/data postgres:16-alpine
+docker run -d --name sensor-db --network zetaris_default --memory 512m -e POSTGRES_USER=sensors \
+  -e POSTGRES_PASSWORD="$SENSOR_DB_PASSWORD" -e POSTGRES_DB=fusion -v sensor-data:/var/lib/postgresql/data postgres:16-alpine
+.venv/bin/python scripts/border_incidents.py          # the six incidents (~45 min); also writes runs_border/<id>/result.json
+.venv/bin/python scripts/border_ops.py load && .venv/bin/python scripts/border_ops.py register
+.venv/bin/python scripts/sensor_stores.py load && .venv/bin/python scripts/sensor_stores.py register
+.venv/bin/python scripts/sensor_stores.py check       # row counts through Zetaris
+```
+
+Neither database publishes a port. They are reachable only on the Zetaris Docker network, which is how Zetaris reaches them by name. Without Zetaris, Border watch still runs: site data falls back to each incident's own post, and the ZETARIS drawer reports that it is unavailable.
 
 ## Outputs and labels
 

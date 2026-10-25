@@ -6,6 +6,9 @@ LLM_API_KEY    API key for that endpoint.
 LLM_MODEL      Nemotron model name as the endpoint knows it (Ollama: nemotron-mini; Nightshift: the
                name its model library shows, e.g. a Nemotron 3 Nano build).
 LLM_TIMEOUT_S  Seconds the Nemotron layer may take per message before the template is used.
+LLM_EXTRA_BODY JSON added to every model request, e.g. {"chat_template_kwargs": {"enable_thinking": false}}:
+               Nemotron 3.5 through Nightshift's NVIDIA provider otherwise spends a small token budget on
+               reasoning and returns an empty reply.
 SITE_MCP       Command that starts the site-data MCP server (stdio). Default: the local stand-in
                (alerting/sitedata_mcp.py). For Zetaris, the command or URL of its MCP server.
 SITE_FILE      JSON site file for the stand-in.
@@ -13,6 +16,7 @@ SITE_FILE      JSON site file for the stand-in.
 The same variables can live in a private env file (KEY=VALUE lines), ALERTING_ENV or by default
 ~/.config/audiodrone/alerting.env, so keys stay out of the repo. Real environment variables win.
 """
+import json
 import os
 import shlex
 import sys
@@ -44,6 +48,7 @@ class Config:
     # whole operator answer (all tool rounds); after it the facts-only fallback answer is given
     answer_deadline_s: float = field(default_factory=lambda: float(os.environ.get("ANSWER_DEADLINE_S", "45")))
     llm_max_tokens: int = field(default_factory=lambda: int(os.environ.get("LLM_MAX_TOKENS", "300")))
+    llm_extra_body: dict = field(default_factory=lambda: json.loads(os.environ.get("LLM_EXTRA_BODY", "{}") or "{}"))
     site_file: str = field(default_factory=lambda: os.environ.get("SITE_FILE", str(DEFAULT_SITE)))
     site_mcp: str = field(default_factory=lambda: os.environ.get("SITE_MCP", ""))
 

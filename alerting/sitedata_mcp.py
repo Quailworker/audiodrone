@@ -1,6 +1,7 @@
-"""Stand-in for the Zetaris MCP server: the site-data tools over a local JSON file (stdio transport).
+"""Site-data MCP server (stdio): the stand-in over a local JSON file, or the same tools read through Zetaris.
 
     python -m alerting.sitedata_mcp [--site alerting/example_site.json]
+    python -m alerting.sitedata_mcp --zetaris LAT,LON     # federated border-ops tables, local frame at LAT,LON
 
 The Nemotron layer (alerting/agent.py) connects to whatever MCP server SITE_MCP names. With real
 Zetaris, expose these same tool names over its federated tables (personnel, units, shelters, sites).
@@ -11,9 +12,10 @@ import json
 from mcp.server.mcpserver import MCPServer
 
 from alerting.sitedata import DEFAULT_SITE, LocalSiteData
+from alerting.sitedata_zetaris import ZetarisSiteData
 
 mcp = MCPServer("site-data")
-_db: LocalSiteData | None = None
+_db: LocalSiteData | ZetarisSiteData | None = None
 
 
 @mcp.tool()
@@ -51,8 +53,14 @@ def main():
     global _db
     ap = argparse.ArgumentParser()
     ap.add_argument("--site", default=str(DEFAULT_SITE))
+    ap.add_argument("--zetaris", metavar="LAT,LON", help="read the site data through Zetaris around this origin")
     a = ap.parse_args()
-    _db = LocalSiteData(a.site)
+    if a.zetaris:
+        from alerting.config import _load_env_file
+        _load_env_file()                                    # ZETARIS_USER / ZETARIS_PASSWORD
+        _db = ZetarisSiteData([float(v) for v in a.zetaris.split(",")])
+    else:
+        _db = LocalSiteData(a.site)
     mcp.run()
 
 
