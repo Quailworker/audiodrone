@@ -346,7 +346,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 | 2026-10-24 | **Model 2** (frequency-tracker channels) trained; not adopted. **UAE terrain tool** (live demo) | d667609, 83bd94d |
 | 2026-10-24 | **ARCHITECTURE.md** | 4f119a1 |
 | 2026-10-24 | **Frequency tracker rebuilt**; tracker-guided beamformer (chain v2, default in terra); Doppler EKF state (opt-in); live input (`live/`); Nemotron answer deadline with a facts fallback; cluster spacing study (`scripts/spacing_study.py`) | 9db6915 |
-| 2026-10-25 | **Border watch** (the whole land border, simulated incidents, border monitor); **Zetaris** running locally and connecting the sector, fusion and operations stores; **Meterless Nightshift** routing Nemotron 3.5 Lightning (NVIDIA provider); Ask box with a local Nemotron Mini fallback; `scripts/demo_check.sh` | (this commit) |
+| 2026-10-25 | **Border watch** (the whole land border, simulated incidents, border monitor); **Zetaris** running locally and connecting the sector, fusion and operations stores; **Meterless Nightshift** routing Nemotron 3.5 Lightning (NVIDIA provider); Ask box with a local Nemotron Mini fallback; `scripts/demo_check.sh` | 0118588 |
 
 **Who did what:**
 - **The owner (Joseph):** the concept, and the decisions marked [J] in design.md, including sim-only training, the drone classes, flat ground clusters, the false-alarm filter idea, and building on Meterless, Zetaris and Nemotron.
