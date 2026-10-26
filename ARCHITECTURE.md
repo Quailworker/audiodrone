@@ -92,6 +92,7 @@ The design rules, and where each is set:
 | Nemotron layer and site data over MCP | `alerting/agent.py`, `sitedata.py`, `sitedata_mcp.py`, `config.py` | Built. Runs Nemotron 3.5 Lightning on Anna's PC. Zetaris is a stand-in | 13.4, 13.6 |
 | UAE terrain tool (live demo) | `terra/` | Built. Full chain on real UAE terrain in 3D | README "Live demo" |
 | Border watch (operator screen) | `terra/border.py`, `terra/static/border.*`, `scripts/border_incidents.py`, `alerting/border.py` | Built. Whole land border, 6 simulated incidents replayed, border-crossing alerts | README section 10 |
+| Build mode (tactical screen) | `terra/build.py`, `terra/replay.py`, `terra/retrack.py`, `terra/static/border.*` | Built. Place clusters (3D listening domes) and drone paths, run the chain, replay with captions | README Live demo |
 | Zetaris federation and Ask | `scripts/sensor_stores.py`, `scripts/border_ops.py`, `alerting/sitedata_zetaris.py`, `terra/federated.py`, `terra/ask.py` | Built. Local Zetaris connects 8 stores (6 sectors, fusion, operations); Nemotron answers from them | README section 10 |
 | Cluster hardware and firmware | — | Planned | 7, 9.6 |
 
@@ -347,6 +348,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 | 2026-10-24 | **ARCHITECTURE.md** | 4f119a1 |
 | 2026-10-24 | **Frequency tracker rebuilt**; tracker-guided beamformer (chain v2, default in terra); Doppler EKF state (opt-in); live input (`live/`); Nemotron answer deadline with a facts fallback; cluster spacing study (`scripts/spacing_study.py`) | 9db6915 |
 | 2026-10-25 | **Border watch** (the whole land border, simulated incidents, border monitor); **Zetaris** running locally and connecting the sector, fusion and operations stores; **Meterless Nightshift** routing Nemotron 3.5 Lightning (NVIDIA provider); Ask box with a local Nemotron Mini fallback; `scripts/demo_check.sh` | 0118588 |
+| 2026-10-26 | **Build mode** on the tactical screen (3D listening domes, run and replay), the Abu Dhabi swarm study, **ghost tracks reduced** (three-ray births, a height cap, plan merging), retracking of saved runs | (this commit) |
 
 **Who did what:**
 - **The owner (Joseph):** the concept, and the decisions marked [J] in design.md, including sim-only training, the drone classes, flat ground clusters, the false-alarm filter idea, and building on Meterless, Zetaris and Nemotron.
@@ -356,7 +358,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 ## 7. Conventions that keep it reproducible
 
 - **Seeds:** every scene is defined by its seed. The same seed gives bit-identical audio on the same platform, and audio within 1 LSB of 24-bit across Linux and Windows. `scripts/manifest.py verify` compares renders with `results/sim_v1_manifest.csv` (AGENTS.md steps 2–3).
-- **Labels and tests:** label versions are recorded in each scene's JSON, and tests pin the reference behaviour (`tests/`, 62 tests in 8 files).
+- **Labels and tests:** label versions are recorded in each scene's JSON, and tests pin the reference behaviour (`tests/`, 68 tests in 9 files).
 - **What stays out of git:**
   - **Bulk files:** data, models, runs and elevation tiles.
   - **Secrets:** API keys live in `~/.config/audiodrone/alerting.env` and on Anna's PC only.
@@ -368,7 +370,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 **Next steps:**
 1. **Field test:** build the first cluster, connect a mic and record a flyover with `live/run.py --record` (README section 9).
 2. **Decide on an early "approaching" alert tier** (owner). `results/spacing/` shows that warning time is limited by the take-cover rule, not by spacing: 0–18 s now, while detection comes 60–200 s ahead. Use 300–600 m spacing rather than 100 m.
-3. **Ghost tracks:** one drone becomes several track IDs (Liwa 22, Ghuwaifat 12). Tighter track births and merging, checked with the Zetaris all-sectors view.
+3. **Two drones heard by the same clusters:** each cluster reports one direction, so the second drone gets few bearings (design Q40). Report the two strongest directions per cluster. Ghost tracks were reduced in v0.12.
 4. **Doppler as pair frequency differences** between clusters locked on the same line (`results/chain_v2/README.md`).
 5. **Nightshift's local runtime** (a Nemotron lane on the GPU PC), so operator questions never leave the site.
 

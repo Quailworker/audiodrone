@@ -124,3 +124,36 @@ def test_doppler_improves_velocity_flat():
     h = {k: np.hypot(*r[:2]) for k, r in rms.items()}
     assert h["dop"] < 0.65 * h["dir"], rms
     assert rms["dop"][2] < 1.3 * rms["dir"][2], rms
+
+
+def test_tracks_agreeing_in_plan_merge_whatever_their_heights():
+    """Flat clusters fix height poorly: two tracks over the same spot at 80 m and 400 m are one drone."""
+    from loc.track import Track, Tracker
+    trk = Tracker(np.zeros((3, 3)) + [[0, 0, 0]], flat=True, merge_h_m=150.0, merge_dv=25.0)
+    a, b = Track(np.array([500.0, 500.0, 80.0]), 0.0), Track(np.array([590.0, 520.0, 400.0]), 0.0)
+    a.n_upd, b.n_upd = 50, 10
+    trk.tracks = [a, b]
+    trk.merge()
+    assert trk.tracks == [a]                                       # the older one is kept
+    off = Tracker(np.zeros((3, 3)), flat=True)                     # without merge_h_m: 3D distance only
+    off.tracks = [a, b]
+    off.merge()
+    assert len(off.tracks) == 2
+
+
+def test_birth_needs_a_third_cluster_when_three_hear():
+    """Any two flat-cluster bearings cross somewhere; a ghost from one bad bearing is refused when a third
+    cluster is available to confirm, and the real drone is born where three agree."""
+    from loc.track import Track, Tracker
+    C = np.array([[0.0, 0, 0], [1000, 0, 0], [0, 1000, 0], [1000, 1000, 0]])
+    drone = np.array([400.0, 300.0, 100.0])
+
+    def ray(k, p):
+        v = p - C[k]
+        return v / np.linalg.norm(v)
+    bad = ray(1, np.array([1500.0, 1800.0, 100.0]))               # cluster 1 points somewhere wrong
+    free = [(0, ray(0, drone)), (1, bad), (2, ray(2, drone)), (3, ray(3, drone))]
+    Track._next = 0
+    trk = Tracker(C, flat=True, birth_rays=3, confirm_deg=4.0, birth_range=5000.0)
+    trk.birth(0.0, free)
+    assert len(trk.tracks) == 1 and np.linalg.norm(trk.tracks[0].s[:2] - drone[:2]) < 30

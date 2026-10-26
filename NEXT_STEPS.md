@@ -16,7 +16,7 @@ What to build next, in order. Details and reasons are in `design.md`; this page 
    - then Hatta (the honest limit: mountains);
    - open ZETARIS (one query across separate databases);
    - Ask a question.
-2. **Ghost tracks** (design Q49): tighten track births and merge tracks with the same course. Check the result with the Zetaris all-sectors view.
+2. **Two drones at once** (design Q40): the direction finder reports the two strongest directions per cluster (the tracker already takes two), then re-render the incidents. Ghost tracks (Q49) were reduced in v0.12.
 3. **Field test** (design 14.7): a real cluster, a real flyover, `live/run.py --record`.
 4. **A Nemotron lane in Nightshift's local runtime** (Q50), so operator questions stay on site. Choose the model under Setup ▸ Runtime on the GPU PC.
 5. **Owner decisions:** the early "approaching" alert tier (13.7.5); sensor placement for warning in mountains and towns (Q51); D-28, Q17, Q18, Q47.

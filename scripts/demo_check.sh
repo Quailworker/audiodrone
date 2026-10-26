@@ -23,7 +23,7 @@ echo "======================="
 # terra server
 if curl -s -o /dev/null -m 5 http://127.0.0.1:8790/border; then pass "terra server on http://127.0.0.1:8790/border"
 elif [ $START = 1 ]; then
-    systemd-run --user --unit ad-terra -p MemoryMax=3G -p MemorySwapMax=0 --working-directory="$PWD" $PY -m terra.server >/dev/null 2>&1
+    systemd-run --user --unit ad-terra -p MemoryMax=10G -p MemorySwapMax=0 -p CPUQuota=600% --working-directory="$PWD" $PY -m terra.server >/dev/null 2>&1
     sleep 6
     curl -s -o /dev/null -m 5 http://127.0.0.1:8790/border && pass "terra server started" || fail "terra server" "see: journalctl --user -u ad-terra"
 else fail "terra server not running" "bash scripts/demo_check.sh --start   (or: $PY -m terra.server)"; fi

@@ -54,6 +54,7 @@ class Track:
         self.s = np.r_[p, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.P = np.diag([pos_sd ** 2] * 3 + [vel_sd ** 2] * 3 + [1.0, 0.05 ** 2])
         self.has_f = False                # ln f0 initialised from a pitch yet?
+        self.heard_by = {}                # cluster -> last time it updated this track
         self.n_f = 0                      # pitch updates
         self.t_last = t
         self.n_upd = 0
@@ -64,7 +65,23 @@ class Track:
 class Tracker:
     def __init__(self, centres, flat, dt=0.1, q_acc=6.0, sigma_u=0.02, sin_floor=0.05, max_miss_s=3.0,
                  gate=GATE_CHI2, emission_correction=True, ground=None, birth_range=1500.0,
-                 q_f=1e-3, sigma_lnf=0.003):
+                 q_f=1e-3, sigma_lnf=0.003, merge_h_m=None, birth_excl_m=None, merge_dv=6.0,
+                 max_agl_m=None, min_support=None, support_s=2.0, max_speed=None, max_vz=None,
+                 birth_rays=2, confirm_deg=6.0):
+        # Flat ground clusters fix height poorly, so tracks on one drone can agree in plan but differ by
+        # hundreds of metres in height. merge_h_m / birth_excl_m (None = off, the v0.11 behaviour) merge
+        # tracks and refuse births by horizontal distance, ignoring height: see merge() and birth().
+        self.merge_h_m, self.birth_excl_m, self.merge_dv = merge_h_m, birth_excl_m, merge_dv
+        # Plausibility (None = off): bad directions from far clusters cross in odd places and start tracks
+        # kilometres up or away (ghosts). A real target here flies below max_agl_m above the ground, keeps
+        # being heard by min_support different clusters within support_s, and moves no faster than
+        # max_speed horizontally / max_vz vertically. See prune().
+        self.max_agl, self.min_support, self.support_s = max_agl_m, min_support, support_s
+        self.max_speed, self.max_vz = max_speed, max_vz
+        # Births: with flat clusters any two bearings cross somewhere, so a bad bearing plus a good one starts a
+        # ghost. birth_rays=3 asks a third cluster's free direction to point at the candidate within
+        # confirm_deg (in azimuth) before a track starts, whenever 3 or more clusters gave free directions.
+        self.birth_rays, self.confirm = birth_rays, np.radians(confirm_deg)
         self.c = np.asarray(centres, float)
         self.ground = ground or (lambda x, y: 0.0)
         self.birth_range = birth_range
@@ -188,24 +205,55 @@ class Tracker:
                     if cost[i, j] < 1e6:
                         self.update(self.tracks[i], *meas[j])
                         self.tracks[i].t_last = t
+                        self.tracks[i].heard_by[k] = t
                         used.add(j)
                         if freqs and freqs.get(k):
                             self.pitch_update(self.tracks[i], k, freqs[k])
         free = [m for j, m in enumerate(meas) if j not in used]
         self.birth(t, free)
         self.tracks = [tr for tr in self.tracks if t - tr.t_last <= self.max_miss]
+        self.prune(t)
         self.merge()
         for tr in self.tracks:
             tr.s[2] = max(tr.s[2], self.ground(tr.s[0], tr.s[1]))     # nothing flies below the ground
         return self.tracks
 
     def merge(self, dist=10.0):
-        """Drop the younger of two tracks that have converged on the same drone."""
+        """Drop the younger of two tracks that have converged on the same drone: within `dist` in 3D, or, with
+        merge_h_m set, within max(merge_h_m, 2 x their combined horizontal sd) in plan and moving alike
+        (horizontal velocities within merge_dv), whatever their heights."""
         keep = []
         for tr in sorted(self.tracks, key=lambda x: -x.n_upd):
-            if all(np.linalg.norm(tr.s[:3] - o.s[:3]) > dist for o in keep):
+            if all(not self._same(tr, o, dist) for o in keep):
                 keep.append(tr)
         self.tracks = keep
+
+    def prune(self, t):
+        """Drop implausible tracks: too high above the ground, too fast, or (once confirmed) no longer heard
+        by min_support different clusters within support_s."""
+        keep = []
+        for tr in self.tracks:
+            x, y, z = tr.s[:3]
+            if self.max_agl is not None and z - self.ground(x, y) > self.max_agl:
+                continue
+            if self.max_speed is not None and np.hypot(tr.s[3], tr.s[4]) > self.max_speed:
+                continue
+            if self.max_vz is not None and abs(tr.s[5]) > self.max_vz:
+                continue
+            if (self.min_support is not None and tr.n_upd >= 5
+                    and sum(1 for tk in tr.heard_by.values() if t - tk <= self.support_s) < self.min_support):
+                continue
+            keep.append(tr)
+        self.tracks = keep
+
+    def _same(self, a, b, dist):
+        if np.linalg.norm(a.s[:3] - b.s[:3]) <= dist:
+            return True
+        if self.merge_h_m is None:
+            return False
+        sd = np.sqrt(max(a.P[0, 0], a.P[1, 1]) + max(b.P[0, 0], b.P[1, 1]))
+        return (np.linalg.norm(a.s[:2] - b.s[:2]) <= max(self.merge_h_m, 2.0 * sd)
+                and np.linalg.norm(a.s[3:5] - b.s[3:5]) <= self.merge_dv)
 
     def update(self, tr, k, z):
         y, S, H, R = self.innovation(tr, k, z)
@@ -216,23 +264,46 @@ class Tracker:
         tr.n_upd += 1
 
     def birth(self, t, free):
-        """Start one track from the best pair of rays from two different clusters, if they nearly meet."""
+        """Start one track from the best pair of rays from two different clusters, if they nearly meet (and, with
+        birth_rays=3 and at least 3 clusters giving free directions, if a third cluster points there too)."""
         best = None
+        others = {}
+        for k, z in free:
+            others.setdefault(k, []).append(z)
+        need3 = self.birth_rays >= 3 and len(others) >= 3
         for (k1, z1), (k2, z2) in itertools.combinations(free, 2):
             if k1 == k2:
                 continue
             p, gap, ang = closest_point(self.c[k1], z1, self.c[k2], z2)
             if p is None or p[2] < self.ground(p[0], p[1]) or np.linalg.norm(p[:2] - self.c_mid) > self.birth_range:
                 continue
+            if self.max_agl is not None and p[2] - self.ground(p[0], p[1]) > self.max_agl:
+                continue                    # rays crossing kilometres up: not a drone we could hear
             rng = min(np.linalg.norm(p - self.c[k1]), np.linalg.norm(p - self.c[k2]))
             if gap > 3.0 + 0.05 * rng or ang < np.radians(5):
                 continue
+            if self.birth_excl_m is not None and any(np.linalg.norm(p[:2] - o.s[:2]) <= self.birth_excl_m for o in self.tracks):
+                continue                    # an existing track is already there in plan: a duplicate, not a new drone
             score = ang - gap / 100
+            if need3:
+                agree = sum(1 for k3 in others if k3 not in (k1, k2) and self._points_at(k3, others[k3], p))
+                if agree == 0:
+                    continue                # no third cluster backs this crossing: likely a ghost
+                score += agree              # more clusters agreeing beats a tighter crossing
             if best is None or score > best[0]:
-                best = (score, p)
+                best = (score, p, k1, k2)
         if best is not None:
             tr = Track(best[1], t)
+            tr.heard_by = {best[2]: t, best[3]: t}
             self.tracks.append(tr)
+
+
+    def _points_at(self, k, zs, p):
+        """True if any of cluster k's directions zs points at p within confirm_deg in azimuth (flat clusters
+        measure azimuth well and elevation poorly)."""
+        d = p - self.c[k]
+        az = np.arctan2(d[0], d[1])
+        return any(abs((np.arctan2(z[0], z[1]) - az + np.pi) % (2 * np.pi) - np.pi) <= self.confirm for z in zs)
 
 
 def closest_point(c1, u1, c2, u2):

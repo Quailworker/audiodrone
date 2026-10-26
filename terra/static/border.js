@@ -67,7 +67,7 @@ controls.maxPolarAngle = 1.32; controls.minDistance = 0.25; controls.maxDistance
 const world = new THREE.Group();
 world.scale.y = S.exag;
 scene.add(world);
-const G = { theatre: new THREE.Group(), overlay: new THREE.Group(), local: new THREE.Group(), dyn: new THREE.Group() };
+const G = { theatre: new THREE.Group(), overlay: new THREE.Group(), local: new THREE.Group(), dyn: new THREE.Group(), build: new THREE.Group() };
 Object.values(G).forEach((g) => world.add(g));
 const fatMats = [];
 
@@ -415,6 +415,17 @@ async function focus(inc, auto = false) {
   $("back").hidden = false;
   const tile = await loadTile(inc);
   if (S.focus !== inc) return;
+  showTile(inc, tile);
+  buildIncidentObjects(inc, tile);
+  applyLayers();
+  flyLocal(inc);
+  setAsk(inc); zetTabs();
+  if (!$("zet").hidden) zetRun("first_heard");
+  if (!inc.built) loadSiteData(inc, tile);
+}
+
+// the detailed terrain tile around a local origin, cut into the theatre map, with the border draped on it
+function showTile(inc, tile) {
   // hole in the theatre mesh and the cluster points where the detailed tile sits
   const [lo0, la0] = local2ll(inc, -tile.half_m, -tile.half_m), [lo1, la1] = local2ll(inc, tile.half_m, tile.half_m);
   for (const m of [theatreMat, clusterMat]) { m.uniforms.uHole.value.set(lo0, la0, lo1, la1); m.uniforms.uHoleOn.value = 1; }
@@ -436,6 +447,10 @@ async function focus(inc, auto = false) {
     }
     if (pts.length >= 6) { G.local.add(fatLine(pts, 0xffb020, 10, 0.18, true)); G.local.add(fatLine(pts, 0xffb020, 2.4, 1, true)); }
   }
+}
+
+// posts, clusters, bearings and the simulated truth of one incident or built scenario
+function buildIncidentObjects(inc, tile) {
   // posts (protected sites)
   for (const s of inc.sites) {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 48), new THREE.MeshBasicMaterial({ color: 0x9fb7c9, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
@@ -454,22 +469,20 @@ async function focus(inc, auto = false) {
   const bg = new THREE.BufferGeometry(); bg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(inc.clusters.length * 6), 3));
   L.bearings = new THREE.LineSegments(bg, new THREE.LineBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.55, depthWrite: false }));
   L.bearings.frustumCulled = false; G.dyn.add(L.bearings);
-  // simulated truth path (hidden unless SIM TRUTH)
-  const tp = []; for (const d of inc.truth) for (const p of d.p) { const w = L2W(inc, p[0], p[1], p[2]); tp.push(w.x, w.y, w.z); }
-  if (tp.length >= 6) {
-    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(tp, 3));
-    L.truthPath = new THREE.Line(g, new THREE.LineDashedMaterial({ color: 0xf2f2ea, dashSize: 0.05, gapSize: 0.04, transparent: true, opacity: 0.5 }));
-    L.truthPath.computeLineDistances(); G.local.add(L.truthPath);
+  // simulated truth, one path and one marker per drone (hidden unless SIM TRUTH)
+  L.truthPaths = []; L.truths = [];
+  for (const d of inc.truth) {
+    const tp = []; for (const p of d.p) { const w = L2W(inc, p[0], p[1], p[2]); tp.push(w.x, w.y, w.z); }
+    if (tp.length >= 6) {
+      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(tp, 3));
+      const line = new THREE.Line(g, new THREE.LineDashedMaterial({ color: 0xf2f2ea, dashSize: 0.05, gapSize: 0.04, transparent: true, opacity: 0.5 }));
+      line.computeLineDistances(); G.local.add(line); L.truthPaths.push(line);
+    }
+    const te = document.createElement("div"); te.className = "lbl truth";
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf2f2ea }));
+    const label = new CSS2DObject(te); mesh.add(label); label.position.set(0, 0.03, 0);
+    G.dyn.add(mesh); L.truths.push({ mesh, label });
   }
-  const te = document.createElement("div"); te.className = "lbl truth";
-  L.truth = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf2f2ea }));
-  L.truthLabel = new CSS2DObject(te); L.truth.add(L.truthLabel); L.truthLabel.position.set(0, 0.03, 0);
-  G.dyn.add(L.truth);
-  applyLayers();
-  flyLocal(inc);
-  setAsk(inc); zetTabs();
-  if (!$("zet").hidden) zetRun("first_heard");
-  loadSiteData(inc, tile);
 }
 
 // ---------------------------------------------------------------- site data from Zetaris (shelters, units, posts)
@@ -554,11 +567,11 @@ function leaveFocus(goHome = true) {
   theatreMat.uniforms.uHoleOn.value = 0; clusterMat.uniforms.uHoleOn.value = 0;
   S.border.sectors.forEach((s) => s.lines.forEach((l) => { l.visible = true; }));
   $("crumbText").textContent = "THEATRE · UAE"; $("back").hidden = true; $("card").hidden = true;
-  $("siteSrc").hidden = true; setAsk(null); zetTabs();
+  $("siteSrc").hidden = true; setAsk(null); zetTabs(); $("caption").hidden = true;
   if (!$("zet").hidden) zetRun("overview");
   if (goHome) home();
 }
-$("back").addEventListener("click", () => leaveFocus(true));
+$("back").addEventListener("click", () => { if (S.mode === "scenario") backToBuild(); else leaveFocus(true); });
 
 // ---------------------------------------------------------------- local replay, every animation frame
 function trackObj(id) {
@@ -635,12 +648,16 @@ function updateLocal() {
   for (const [id, o] of L.tracks) if (!seen.has(id)) { o.g.visible = false; o.lab.visible = false; }   // CSS2D ignores the parent's flag
   // simulated truth
   const showTruth = $("lyrTruth").checked && live;
-  L.truth.visible = showTruth; L.truthLabel.visible = showTruth; if (L.truthPath) L.truthPath.visible = $("lyrTruth").checked;
-  if (showTruth && inc.truth[0]) {
-    const d = inc.truth[0], j = Math.max(0, Math.min(d.t.length - 1, Math.round(tl * inc.replay_hz)));
-    L.truth.position.copy(L2W(inc, ...d.p[j])); L.truth.scale.setScalar(size(L.truth.position));
-    L.truthLabel.element.textContent = `SIM TRUTH · ${d.cls.toUpperCase()} · ${Math.round(d.agl[j])} M AGL`;
-  }
+  (L.truthPaths || []).forEach((l) => { l.visible = $("lyrTruth").checked; });
+  (L.truths || []).forEach(({ mesh, label }, i) => {
+    mesh.visible = showTruth; label.visible = showTruth;
+    const d = inc.truth[i];
+    if (!showTruth || !d) return;
+    const j = Math.max(0, Math.min(d.t.length - 1, Math.round(tl * inc.replay_hz)));
+    mesh.position.copy(L2W(inc, ...d.p[j])); mesh.scale.setScalar(size(mesh.position));
+    label.element.textContent = `SIM TRUTH${inc.truth.length > 1 ? ` ${i + 1}` : ""} · ${d.cls.toUpperCase()} · ${Math.round(d.agl[j])} M AGL`;
+  });
+  updateCaption(inc, fr, tl);
   updateCard(inc, fr, tile, tl);
   return fr ? fr.tracks.length : 0;
 }
@@ -692,7 +709,7 @@ function outcome(inc) {
 
 // ---------------------------------------------------------------- auto-follow
 function autoFollow() {
-  if (!$("follow").checked) return;
+  if (!$("follow").checked || S.mode !== "watch") return;
   const f = S.focus;
   if (f && S.autoFocused && S.now > f.t0 + f.duration + 6) { S.autoFocused = false; leaveFocus(true); return; }
   if (f || !S.playing) return;
@@ -709,7 +726,7 @@ const SQL_KW = /\b(SELECT|FROM|JOIN|LEFT|WHERE|GROUP BY|ORDER BY|UNION ALL|ON|AN
 function prettySql(sql) { return sql.replace(SQL_KW, "\n$1").replace(/^\n/, ""); }
 function zetTabs() {
   document.querySelectorAll(".ztabs button").forEach((b) => {
-    b.disabled = b.hasAttribute("data-inc") && !S.focus;
+    b.disabled = b.hasAttribute("data-inc") && (!S.focus || !!S.focus.built);   // built tests are not in the stores
     b.title = b.disabled ? "Open an incident first" : "";
   });
 }
@@ -765,20 +782,27 @@ $("exag").addEventListener("input", (e) => {
   S.exag = v; world.scale.y = v; $("exagV").textContent = `${v}×`;
   const off = camera.position.clone().sub(controls.target);
   controls.target.y *= k; camera.position.copy(controls.target).add(off);
+  if (S.mode === "build") redrawBuild();                                   // domes stay true spheres
+  else if (S.mode === "scenario" && $("lyrRanges").checked) redrawBuildOverlayFaint();
 });
 window.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" && e.target.type !== "range" && e.target.type !== "checkbox") return;   // typing a question
   if (e.code === "Space") { e.preventDefault(); $("play").click(); }
-  if (e.key === "Escape" && S.focus) leaveFocus(true);
+  if (e.key === "Escape") {
+    if (B.tool) setTool(null);
+    else if (S.mode === "scenario") backToBuild();
+    else if (S.focus) leaveFocus(true);
+  }
+  if (S.mode === "build" && B.tool === "draw" && e.key === "Enter") finishDrone();
+  if (S.mode === "build" && B.tool === "draw" && e.key === "Backspace") { e.preventDefault(); B.cur.pop(); redrawBuild(); }
   if (e.key === "n" || e.key === "N") $("next").click();
 });
 
 // cursor readout: march the view ray down to the ground
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 let lastMove = 0;
-renderer.domElement.addEventListener("pointermove", (ev) => {
-  const t = performance.now(); if (t - lastMove < 60) return; lastMove = t;
-  ndc.set((ev.clientX / window.innerWidth) * 2 - 1, -(ev.clientY / window.innerHeight) * 2 + 1);
+function groundPoint(clientX, clientY) {          // where the view ray under the cursor meets the ground
+  ndc.set((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
   ray.setFromCamera(ndc, camera);
   const o = ray.ray.origin, d = ray.ray.direction, far = camera.position.distanceTo(controls.target) * 6 + 50;
   let prev = 0;
@@ -786,13 +810,398 @@ renderer.domElement.addEventListener("pointermove", (ev) => {
     const s = far * Math.pow(i / 220, 2), x = o.x + d.x * s, y = o.y + d.y * s, z = o.z + d.z * s;
     if (y <= (groundW(x, z) / 1000) * S.exag) {
       const sm = (prev + s) / 2, X = o.x + d.x * sm, Z = o.z + d.z * sm, [lon, lat] = unproj(X, Z);
-      $("readout").textContent = `${dms(lat, "N", "S")}  ${dms(lon, "E", "W")}  ·  ELEV ${Math.round(groundW(X, Z))} M`;
-      return;
+      return { X, Z, lon, lat, h: groundW(X, Z) };
     }
     prev = s;
   }
-  $("readout").textContent = "--";
+  return null;
+}
+renderer.domElement.addEventListener("pointermove", (ev) => {
+  const t = performance.now(); if (t - lastMove < 60) return; lastMove = t;
+  const g = groundPoint(ev.clientX, ev.clientY);
+  $("readout").textContent = g ? `${dms(g.lat, "N", "S")}  ${dms(g.lon, "E", "W")}  ·  ELEV ${Math.round(g.h)} M` : "--";
+  if (typeof buildHover === "function") buildHover(g);
 });
+
+// ---------------------------------------------------------------- BUILD A TEST: place microphones and drones, run, replay
+// Local frame: metres east (x) and north (y) of the protected site (the origin), as the server's scenarios.
+const B = { origin: null, tile: null, pinc: null, clusters: [], drones: [], cur: [], cls: "mid", agl: 60, speed: 14,
+            ambient: "desert", tool: null, ranges: null, job: null, estTimer: null, down: null };
+const MAX_REACH_M = 5400;
+const PRESETS = [
+  { id: "liwa", label: "Desert border post · Liwa", sub: "quadcopter from the Saudi side, quiet desert",
+    origin: [22.8205, 53.5935], ambient: "desert", ring: [700, 6], centre: true,
+    drones: [{ cls: "mid", agl: 60, speed: 14, waypoints: [[-400, -2600], [-150, -900], [0, 0]] }] },
+  { id: "adh", label: "City site · Abu Dhabi", sub: "large petrol drone over town noise",
+    origin: [24.47, 54.37], ambient: "town", ring: [300, 6], centre: true,
+    drones: [{ cls: "ts_mr", agl: 90, speed: 16, waypoints: [[-1600, 900], [-500, 300], [0, 0]] }] },
+  { id: "hatta", label: "Mountain border · Hatta", sub: "FPV through the Hajar, hills block sound",
+    origin: [24.7905, 56.1455], ambient: "desert", ring: [600, 6], centre: true,
+    drones: [{ cls: "fpv", agl: 40, speed: 22, waypoints: [[1500, -1900], [600, -700], [0, 0]] }] },
+];
+
+function initBuild() {
+  fetch("/api/build/ranges").then((r) => r.json()).then((d) => { B.ranges = d; fillBuildControls(); }).catch(() => {});
+  G.build.renderOrder = 3;
+  world.add(G.build);
+  const pb = $("bPresets");
+  PRESETS.forEach((p) => {
+    const b = document.createElement("button"); b.type = "button";
+    b.innerHTML = `${p.label}<small class="dim"> · ${p.sub}</small>`;
+    b.addEventListener("click", () => loadPreset(p)); pb.appendChild(b);
+  });
+  $("tabWatch").addEventListener("click", () => setMode("watch"));
+  $("tabBuild").addEventListener("click", () => setMode("build"));
+  $("bPick").addEventListener("click", () => setTool(B.tool === "pick" ? null : "pick"));
+  $("bMic").addEventListener("click", () => setTool(B.tool === "mic" ? null : "mic"));
+  $("bMicClear").addEventListener("click", () => { B.clusters = []; redrawBuild(); });
+  $("bDraw").addEventListener("click", () => { if (B.tool === "draw") finishDrone(); else { B.cur = []; setTool("draw"); } });
+  $("bDroneDone").addEventListener("click", finishDrone);
+  $("bRun").addEventListener("click", runBuild);
+  $("bAmb").addEventListener("change", (e) => { B.ambient = e.target.value; redrawBuild(); });
+  $("bAgl").addEventListener("input", (e) => { B.agl = Number(e.target.value); $("bAglV").textContent = `${B.agl} m`; });
+  $("bSpd").addEventListener("input", (e) => { B.speed = Number(e.target.value); $("bSpdV").textContent = `${B.speed} m/s`; });
+  $("lyrRanges").addEventListener("change", () => {                // only matters on a test replay; editing always shows them
+    if (S.mode !== "scenario") return;
+    if ($("lyrRanges").checked) redrawBuildOverlayFaint(); else clearGroup(G.build);
+  });
+  // a click (not a drag) on the map acts with the current tool
+  renderer.domElement.addEventListener("pointerdown", (ev) => { B.down = [ev.clientX, ev.clientY, ev.button]; });
+  renderer.domElement.addEventListener("pointerup", (ev) => {
+    if (!B.down || ev.button !== 0 || B.down[2] !== 0) return;
+    if (Math.hypot(ev.clientX - B.down[0], ev.clientY - B.down[1]) > 5) return;
+    if (S.mode === "build" && B.tool) buildClick(groundPoint(ev.clientX, ev.clientY));
+  });
+  renderer.domElement.addEventListener("dblclick", () => { if (S.mode === "build" && B.tool === "draw") finishDrone(); });
+  refreshTests();
+}
+
+function fillBuildControls() {
+  const sel = $("bAmb"); sel.innerHTML = "";
+  for (const [k, v] of Object.entries(B.ranges.ambients)) { const o = document.createElement("option"); o.value = k; o.textContent = v; sel.appendChild(o); }
+  sel.value = B.ambient;
+  const box = $("bTypes"); box.innerHTML = "";
+  for (const [k, v] of Object.entries(B.ranges.classes)) {
+    const b = document.createElement("button"); b.type = "button"; b.dataset.cls = k;
+    b.innerHTML = `${v.replace(/ \(.*\)/, "")}<small>${v.match(/\((.*)\)/)?.[1] || ""}</small>`;
+    b.addEventListener("click", () => { B.cls = k; setDroneDefaults(k); redrawBuild(); });
+    box.appendChild(b);
+  }
+  redrawBuild();
+}
+function setDroneDefaults(cls) {
+  const d = { fpv: [40, 22], mid: [60, 14], ts_mr: [90, 16], ts_fw: [150, 28] }[cls] || [60, 14];
+  B.agl = d[0]; B.speed = d[1];
+  $("bAgl").value = B.agl; $("bSpd").value = B.speed; $("bAglV").textContent = `${B.agl} m`; $("bSpdV").textContent = `${B.speed} m/s`;
+}
+const rangeM = (cls = B.cls) => (B.ranges ? B.ranges.ranges[B.ambient][cls] : 800);
+
+function setMode(m) {
+  if (S.mode === m) return;
+  setTool(null);
+  if (S.playing) $("play").click();
+  if (S.focus) leaveFocus(false);
+  $("tabWatch").classList.toggle("on", m === "watch"); $("tabBuild").classList.toggle("on", m !== "watch");
+  $("watchPane").hidden = m !== "watch"; $("buildPane").hidden = m === "watch";
+  $("lyrRangesWrap").hidden = m === "watch";
+  $("back").textContent = "◂ THEATRE"; $("caption").hidden = true;
+  if (m === "watch") {
+    clearBuildView();
+    S.mode = "watch";
+    setIncidents(S.watchIncidents); setNow(0);
+    home();
+  } else {
+    S.mode = "build";
+    setIncidents([]);
+    if (B.origin) showBuildArea(); else { setTool("pick"); home(); }
+  }
+}
+
+function setIncidents(list) {
+  for (const inc of S.incidents) { if (inc.marker) { inc.marker.element.remove(); G.overlay.remove(inc.marker); inc.marker = null; } }
+  S.incidents = list; S.events = []; S.lastNow = -1; S.logShown = 0; $("log").innerHTML = "";
+  if (list.length) { buildTimeline(); buildPanels(); }
+  else { S.len = 60; $("ticks").innerHTML = ""; $("len").textContent = "BUILD MODE"; }
+}
+
+function setTool(t) {
+  B.tool = t;
+  $("bPick").classList.toggle("on", t === "pick"); $("bMic").classList.toggle("on", t === "mic");
+  $("bDraw").classList.toggle("on", t === "draw"); $("bDroneDone").hidden = t !== "draw";
+  $("bDraw").textContent = t === "draw" ? "✎ Drawing… (double-click to finish)" : "✎ Draw drone path";
+  const msg = { pick: "CLICK THE MAP WHERE THE SITE YOU WANT TO PROTECT IS",
+                mic: "CLICK TO PLACE A MICROPHONE CLUSTER · CLICK ONE TO REMOVE IT · ESC WHEN DONE",
+                draw: "CLICK THE DRONE'S PATH, START FIRST · DOUBLE-CLICK OR ENTER TO FINISH · BACKSPACE UNDOES" }[t];
+  $("instr").hidden = !msg; if (msg) $("instr").textContent = msg;
+  if (t !== "draw" && B.cur.length) { B.cur = []; redrawBuild(); }
+  stepMarks();
+}
+
+function toLocal(g) {                                   // ground point -> metres from the protected site
+  const [a, b] = mpd(B.origin[0]);
+  return [(g.lon - B.origin[1]) * b, (g.lat - B.origin[0]) * a];
+}
+
+async function buildClick(g) {
+  if (!g) return;
+  if (B.tool === "pick") { B.origin = [g.lat, g.lon]; B.clusters = []; B.drones = []; setTool("mic"); await showBuildArea(); return; }
+  if (!B.origin) return;
+  const [x, y] = toLocal(g);
+  if (Math.hypot(x, y) > MAX_REACH_M) { flashInstr("TOO FAR FROM THE SITE: KEEP WITHIN 5 KM"); return; }
+  if (B.tool === "mic") {
+    const near = B.clusters.findIndex(([cx, cy]) => Math.hypot(cx - x, cy - y) < Math.max(40, camera.position.distanceTo(controls.target) * 6));
+    if (near >= 0) B.clusters.splice(near, 1);
+    else if (B.clusters.length >= 24) { flashInstr("AT MOST 24 MICROPHONE CLUSTERS"); return; }
+    else B.clusters.push([Math.round(x), Math.round(y)]);
+  } else if (B.tool === "draw") {
+    const last = B.cur[B.cur.length - 1];          // a double-click to finish also sends two clicks on the same spot
+    if (!last || Math.hypot(last[0] - x, last[1] - y) > 15) B.cur.push([Math.round(x), Math.round(y)]);
+  }
+  redrawBuild();
+}
+function flashInstr(text) {
+  const el = $("instr"), old = el.textContent, was = el.hidden;
+  el.hidden = false; el.textContent = text; el.style.borderColor = "var(--red)";
+  setTimeout(() => { el.style.borderColor = ""; el.textContent = old; el.hidden = was && !B.tool; }, 1800);
+}
+function finishDrone() {
+  if (B.cur.length >= 2) {
+    if (B.drones.length >= 6) flashInstr("AT MOST 6 DRONES");
+    else B.drones.push({ cls: B.cls, agl: B.agl, speed: B.speed, waypoints: B.cur.slice() });
+  }
+  B.cur = []; setTool(null); redrawBuild();
+}
+
+async function showBuildArea() {
+  clearBuildView();
+  const [lat, lon] = B.origin;
+  B.pinc = { id: `build_${lat.toFixed(4)}_${lon.toFixed(4)}`, lat, lon, half_m: 6000, border: localBorder(lat, lon, 6000), built: true };
+  $("bPlaceText").innerHTML = `Site at <b>${dms(lat, "N", "S")} ${dms(lon, "E", "W")}</b>. Click <b>Pick on map</b> to move it.`;
+  B.tile = await loadTile(B.pinc);
+  if (S.mode !== "build" || !B.pinc || B.pinc.lat !== lat || B.pinc.lon !== lon) return;
+  showTile(B.pinc, B.tile);
+  redrawBuild();
+  const c = L2W(B.pinc, 0, 0, hL(B.tile, 0, 0)); c.y *= S.exag;
+  flyTo(c, 5.5, 0.9, -0.35, 1.8);
+}
+function localBorder(lat, lon, half) {                 // border lines near the site, in metres from it
+  const [a, b] = mpd(lat), out = [];
+  for (const s of S.border.sectors) {
+    const xy = s.line.map(([lo, la]) => [(lo - lon) * b, (la - lat) * a]);
+    if (xy.some(([x, y]) => Math.abs(x) < half * 1.5 && Math.abs(y) < half * 1.5)) out.push({ sector: s.id, xy });
+  }
+  return out;
+}
+function clearBuildView() {
+  clearGroup(G.build); clearGroup(G.local);
+  theatreMat.uniforms.uHoleOn.value = 0; clusterMat.uniforms.uHoleOn.value = 0;
+  S.border.sectors.forEach((s) => s.lines.forEach((l) => { l.visible = true; }));
+}
+
+function loadPreset(p) {
+  B.origin = p.origin.slice(); B.ambient = p.ambient; $("bAmb").value = p.ambient;
+  B.clusters = [];
+  const [r, n] = p.ring;
+  for (let k = 0; k < n; k++) { const a = (2 * Math.PI * k) / n; B.clusters.push([Math.round(r * Math.sin(a)), Math.round(r * Math.cos(a))]); }
+  if (p.centre) B.clusters.push([0, 0]);
+  B.drones = p.drones.map((d) => ({ ...d, waypoints: d.waypoints.map((w) => w.slice()) }));
+  B.cls = p.drones[0].cls; setDroneDefaults(B.cls);
+  setTool(null);
+  showBuildArea();
+}
+
+// draw: the site, microphones with their listening domes, gaps between neighbours, drone paths
+const DOME_GEO = new THREE.SphereGeometry(1, 48, 16, 0, 2 * Math.PI, 0, Math.PI / 2);          // unit upper half-sphere
+const DOME_WIRE = new THREE.WireframeGeometry(new THREE.SphereGeometry(1, 16, 5, 0, 2 * Math.PI, 0, Math.PI / 2));
+function groundAt(x, y) { return B.tile && Math.abs(x) < B.tile.half_m && Math.abs(y) < B.tile.half_m ? hL(B.tile, x, y) : hT(...local2ll(B.pinc, x, y)); }
+function redrawBuild() {
+  document.querySelectorAll("#bTypes button").forEach((b) => b.classList.toggle("on", b.dataset.cls === B.cls));
+  clearGroup(G.build);
+  if (!B.pinc) { stepMarks(); updateEstimate(); return; }
+  const inc = B.pinc, R = rangeM();
+  const W = (x, y, dz = 0) => L2W(inc, x, y, groundAt(x, y) + dz);
+  // protected site
+  const site = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 64), new THREE.MeshBasicMaterial({ color: 0x9fb7c9, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthTest: false }));
+  site.rotation.x = -Math.PI / 2; site.scale.setScalar(0.15); site.position.copy(W(0, 0, 4)); site.renderOrder = 6; G.build.add(site);
+  addLabel(G.build, "PROTECTED SITE", "lbl site", ...local2ll(inc, 0, 0), groundAt(0, 0) + 60);
+  // listening domes: a transparent half-sphere per cluster, radius = how far it hears this drone type.
+  // The world is stretched in height by the relief factor, so each dome is squashed back by it to stay a
+  // true sphere: a drone path at its real height is inside a dome exactly when that cluster can hear it.
+  const rk = R / 1000;
+  for (const [x, y] of B.clusters) {
+    const base = W(x, y, 0);
+    const dome = new THREE.Mesh(DOME_GEO, new THREE.MeshBasicMaterial({ color: 0x3ce6d0, transparent: true, opacity: 0.07, depthWrite: false, side: THREE.DoubleSide }));
+    dome.scale.set(rk, rk / S.exag, rk); dome.position.copy(base); dome.renderOrder = 2; G.build.add(dome);
+    const wire = new THREE.LineSegments(DOME_WIRE, new THREE.LineBasicMaterial({ color: 0x3ce6d0, transparent: true, opacity: 0.22, depthWrite: false }));
+    wire.scale.copy(dome.scale); wire.position.copy(base); wire.renderOrder = 3; G.build.add(wire);
+    // ground footprint, faint: overlapping footprints read darker where 2 or more clusters hear
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 72), new THREE.MeshBasicMaterial({ color: 0x3ce6d0, transparent: true, opacity: 0.05, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+    disc.rotation.x = -Math.PI / 2; disc.scale.setScalar(rk); disc.position.copy(W(x, y, 2)); disc.renderOrder = 2; G.build.add(disc);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(0.985, 1, 96), new THREE.MeshBasicMaterial({ color: 0x3ce6d0, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+    rim.rotation.x = -Math.PI / 2; rim.scale.setScalar(R / 1000); rim.position.copy(W(x, y, 2)); rim.renderOrder = 3; G.build.add(rim);
+    const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.03), new THREE.MeshBasicMaterial({ color: 0x3ce6d0, depthTest: false }));
+    m.position.copy(W(x, y, 10)); m.renderOrder = 7; G.build.add(m);
+  }
+  B.clusters.forEach(([x, y], i) => addLabel(G.build, `M${i + 1}`, "lbl mic", ...local2ll(inc, x, y), groundAt(x, y) + 70));
+  // gaps: each cluster to its two nearest neighbours
+  const seen = new Set(); let tooWide = 0;
+  B.clusters.forEach(([x, y], i) => {
+    B.clusters.map(([u, v], j) => [j, Math.hypot(u - x, v - y)]).filter(([j]) => j !== i).sort((a, b) => a[1] - b[1]).slice(0, 2).forEach(([j, d]) => {
+      const key = i < j ? `${i}-${j}` : `${j}-${i}`; if (seen.has(key)) return; seen.add(key);
+      const [u, v] = B.clusters[j], cls = d <= R ? "ok" : d <= 2 * R ? "warn" : "bad";
+      if (cls !== "ok") tooWide++;
+      const col = { ok: 0x39ff88, warn: 0xffb020, bad: 0xff3b3b }[cls];
+      G.build.add(fatLine([...W(x, y, 6).toArray(), ...W(u, v, 6).toArray()], col, 2, 0.9, false));
+      addLabel(G.build, `${d >= 1000 ? (d / 1000).toFixed(1) + " km" : Math.round(d) + " m"}`, `lbl gap ${cls}`, ...local2ll(inc, (x + u) / 2, (y + v) / 2), groundAt((x + u) / 2, (y + v) / 2) + 30);
+    });
+  });
+  // drone paths (finished, and the one being drawn)
+  const drawPath = (wps, d, label, dashed) => {
+    const pts = [];
+    for (let i = 0; i < wps.length - 1; i++) {
+      const [ax, ay] = wps[i], [bx, by] = wps[i + 1], k = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 60));
+      for (let j = 0; j <= k; j++) { const x = ax + ((bx - ax) * j) / k, y = ay + ((by - ay) * j) / k; pts.push(...W(x, y, d.agl).toArray()); }
+    }
+    if (pts.length >= 6) G.build.add(fatLine(pts, dashed ? 0xffd24a : 0xff5a36, dashed ? 2 : 3, 0.95, false));
+    wps.forEach(([x, y]) => { const s = new THREE.Mesh(new THREE.SphereGeometry(0.015, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff8a7a, depthTest: false })); s.position.copy(W(x, y, d.agl)); s.renderOrder = 8; G.build.add(s); });
+    if (label && wps.length) addLabel(G.build, label, "lbl drone", ...local2ll(inc, ...wps[0]), groundAt(...wps[0]) + d.agl + 80);
+  };
+  const names = B.ranges ? B.ranges.classes : {};
+  B.drones.forEach((d, i) => drawPath(d.waypoints, d, `D${i + 1} · ${(names[d.cls] || d.cls).toUpperCase()} · START`, false));
+  if (B.cur.length) drawPath(B.cur, { agl: B.agl }, null, true);
+  // panel text
+  const cname = (names[B.cls] || B.cls).toLowerCase();
+  let t = `Each dome shows how far (in every direction, including up) a cluster can hear a <b>${cname}</b> in <b>${(B.ranges?.ambients[B.ambient] || B.ambient).toLowerCase()}</b>: about <b>${R >= 1000 ? (R / 1000).toFixed(1) + " km" : R + " m"}</b>. `;
+  t += `To fix a drone's position, two clusters must hear it, so keep neighbours <b>no more than ${R >= 1000 ? (R / 1000).toFixed(1) + " km" : R + " m"} apart</b> (green lines). `;
+  if (B.clusters.length) t += tooWide ? `<span class="warn">${tooWide} gap(s) are too wide (amber: only one cluster hears the middle; red: nobody does).</span>` : "All gaps are close enough.";
+  $("bMicText").innerHTML = `${B.clusters.length} placed. ${t}`;
+  const list = $("bDrones"); list.innerHTML = "";
+  B.drones.forEach((d, i) => {
+    const len = d.waypoints.slice(1).reduce((s, w, k) => s + Math.hypot(w[0] - d.waypoints[k][0], w[1] - d.waypoints[k][1]), 0);
+    const row = document.createElement("div"); row.className = "it";
+    row.innerHTML = `<span>D${i + 1} · ${names[d.cls] || d.cls} · ${(len / 1000).toFixed(1)} km · ${d.agl} m · ${d.speed} m/s</span><button type="button" aria-label="Remove">✕</button>`;
+    row.querySelector("button").addEventListener("click", () => { B.drones.splice(i, 1); redrawBuild(); });
+    list.appendChild(row);
+  });
+  stepMarks(); updateEstimate();
+}
+function stepMarks() {
+  const done = [!!B.origin, B.clusters.length >= 2, B.drones.length >= 1];
+  ["bs1", "bs2", "bs3"].forEach((id, i) => { $(id).classList.toggle("done", done[i]); $(id).classList.toggle("now", !done[i] && done.slice(0, i).every(Boolean)); });
+  $("bs4").classList.toggle("now", done.every(Boolean));
+  if (S.mode === "build") document.querySelector("#buildPane .bstep.now")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+function buildHover() { /* reserved: hover hints */ }
+
+function buildRequest() {
+  return { origin: B.origin, clusters: B.clusters, drones: B.drones, ambient: B.ambient, seed: 7,
+           sites: [{ name: "Protected site", x: 0, y: 0, radius_m: 150 }],
+           name: `Test · ${PRESETS.find((p) => p.origin[0] === B.origin?.[0] && p.origin[1] === B.origin?.[1])?.label || `${B.origin?.[0].toFixed(3)}N ${B.origin?.[1].toFixed(3)}E`}` };
+}
+function updateEstimate() {
+  clearTimeout(B.estTimer);
+  const ready = B.origin && B.clusters.length >= 2 && B.drones.length >= 1;
+  $("bRun").disabled = !ready || !!B.job;
+  if (!ready) { $("bEst").textContent = "Place at least 2 microphones and 1 drone first."; return; }
+  B.estTimer = setTimeout(async () => {
+    try {
+      const r = await (await fetch("/api/build/estimate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildRequest()) })).json();
+      if (r.error) { $("bEst").innerHTML = `<span class="warn">${r.error}</span>`; $("bRun").disabled = true; return; }
+      const m = r.estimate_s / 60;
+      $("bEst").innerHTML = `Estimated time: <b>${m < 1.5 ? "about 1 minute" : `about ${Math.round(m)} minutes`}</b> (${B.clusters.length} clusters × ${B.drones.length} drone${B.drones.length > 1 ? "s" : ""}).` +
+        (r.near_border ? " Near the border: crossing alerts are on." : "") +
+        (m > 8 ? ` <span class="warn">Long run: fewer clusters, fewer drones or shorter paths are faster.</span>` : "");
+    } catch { $("bEst").textContent = "Could not reach the server."; }
+  }, 250);
+}
+
+async function runBuild() {
+  if (B.job) return;
+  setTool(null);
+  let r;
+  try { r = await (await fetch("/api/build/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildRequest()) })).json(); }
+  catch (e) { r = { error: e.message }; }
+  if (r.error) { $("bEst").innerHTML = `<span class="bad">${r.error}</span>`; return; }
+  B.job = r.id; $("bRun").disabled = true;
+  $("runcard").hidden = false; $("runBar").style.width = "2%"; $("runStage").textContent = "Starting";
+  const poll = setInterval(async () => {
+    let st;
+    try { st = await (await fetch(`/api/build/status/${B.job}`)).json(); } catch { return; }
+    const det = st.detail.match(/\((\d+)\/(\d+)\)/);
+    $("runStage").textContent = st.stage + (det && st.stage.startsWith("Simulating") ? ` (${det[1]} of ${det[2]})` : "");
+    $("runBar").style.width = `${Math.round(100 * st.fraction)}%`;
+    $("runTime").textContent = `${Math.floor(st.elapsed_s / 60)}:${String(st.elapsed_s % 60).padStart(2, "0")} elapsed`;
+    if (st.status === "done" || st.status === "error") {
+      clearInterval(poll);
+      const id = B.job; B.job = null; $("runcard").hidden = true; updateEstimate();
+      if (st.status === "error") { $("bEst").innerHTML = `<span class="bad">The run failed: ${st.error}</span>`; return; }
+      refreshTests();
+      const inc = await (await fetch(`/api/incident/${id}`)).json();
+      playScenario(inc);
+    }
+  }, 1000);
+}
+
+async function refreshTests() {
+  let rows = [];
+  try { rows = await (await fetch("/api/build/list")).json(); } catch { /* server not reachable */ }
+  const box = $("bList"); box.innerHTML = rows.length ? "" : `<div class="empty">No tests yet.</div>`;
+  for (const r of rows) {
+    const d = document.createElement("div"); d.className = "it";
+    d.innerHTML = `<span>${r.name} · ${r.clusters} mics · ${r.drones} drone${r.drones > 1 ? "s" : ""}</span>`;
+    d.addEventListener("click", async () => { const inc = await (await fetch(`/api/incident/${r.id}`)).json(); playScenario(inc); });
+    box.appendChild(d);
+  }
+}
+
+function playScenario(inc) {
+  setTool(null);
+  clearBuildView();
+  inc.outcome = outcome(inc);
+  S.mode = "scenario";
+  setIncidents([inc]);
+  $("watchPane").hidden = true; $("buildPane").hidden = false;
+  $("lyrRangesWrap").hidden = false;
+  focus(inc).then(() => {
+    $("crumbText").textContent = `TEST REPLAY · ${inc.name.toUpperCase()}`;
+    $("back").textContent = "◂ EDIT TEST";
+    // keep the listening circles over the replay, faintly, when RANGES is on
+    if (B.pinc && $("lyrRanges").checked) redrawBuildOverlayFaint();
+  });
+  setNow(Math.max(0, (inc.firstT ?? 0) - 8));
+  if (!S.playing) $("play").click();
+}
+function redrawBuildOverlayFaint() {
+  redrawBuild();
+  G.build.traverse((o) => { if (o.material && o.material.opacity !== undefined) o.material.opacity *= 0.5; });
+  G.build.children.filter((o) => o.isCSS2DObject && (o.element.classList.contains("drone") || o.element.classList.contains("site"))).forEach((o) => { o.visible = false; });
+}
+function backToBuild() {
+  if (S.playing) $("play").click();
+  leaveFocus(false);
+  $("back").textContent = "◂ THEATRE";
+  S.mode = "build"; setIncidents([]);
+  if (B.origin) showBuildArea(); else home();
+}
+
+// plain-language caption for whatever incident or test is on screen
+function updateCaption(inc, fr, tl) {
+  const el = $("caption");
+  if (!fr) { el.hidden = !(S.mode === "scenario"); if (!el.hidden) el.innerHTML = tl < 0 ? "Starting…" : "The test has ended. Press <b>◂ EDIT TEST</b> to change it, or replay with the timeline."; return; }
+  const heard = [...fr.cnn].reduce((n, c) => n + (c === "1"), 0), trs = fr.tracks;
+  const recent = inc.alerts.filter((a) => a.to === "operators" && a.t <= tl && tl - a.t < 6).pop();
+  let html;
+  if (recent && TIERS[recent.tier]?.lvl >= 2) html = `<span class="bad">${TIERS[recent.tier].tag}</span> · ${recent.text.split(":")[0]}`;
+  else if (trs.length) {
+    const t0 = trs.reduce((a, b) => (b.n > a.n ? b : a)), site = inc.sites[0], sp = Math.hypot(t0.vx, t0.vy);
+    const where = site ? (() => { const d = Math.hypot(t0.x - site.x, t0.y - site.y);
+      return ` · drone <b>${d >= 1000 ? (d / 1000).toFixed(1) + " km" : Math.round(d) + " m"}</b> from ${site.name.toLowerCase().startsWith("protected") ? "the site" : site.name}`; })() : "";
+    html = `<b>Position fixed</b> from ${heard} microphone${heard === 1 ? "" : "s"}${where} at ${sp.toFixed(0)} m/s` + (trs.length > 1 ? ` · <span class="warn">${trs.length} tracks</span>` : "");
+  } else if (heard >= 2) html = `<b>${heard} microphones hear a drone</b> · combining their directions…`;
+  else if (heard === 1) html = `<b>1 microphone hears a drone</b> · a second one is needed to fix its position`;
+  else html = "Listening · no microphone hears a drone yet";
+  el.hidden = false; el.innerHTML = html;
+}
 
 // ---------------------------------------------------------------- main loop
 let tPrev = performance.now(), tUi = 0;
@@ -822,7 +1231,9 @@ async function start() {
   S.theatre = theatre; S.border = border;
   S.incidents = await Promise.all(list.map((i) => fetch(`/api/incident/${i.id}`).then((r) => r.json())));
   S.incidents.forEach((inc) => { inc.outcome = outcome(inc); });
+  S.mode = "watch"; S.watchIncidents = S.incidents;
   buildTheatre(); buildBorder(); buildTimeline(); buildPanels(); applyLayers();
+  initBuild();
   const [X, Z] = proj(54.25, 24.15);
   camera.position.set(X, 900, Z + 900); controls.target.set(X, 0, Z);
   home();
@@ -834,5 +1245,5 @@ async function start() {
   updatePanels();
   requestAnimationFrame(loop);
 }
-window.__bw = { S, L, camera, controls };       // for headless checks (tests/ui)
+window.__bw = { S, L, B, camera, controls };       // for headless checks (tests/ui)
 start().catch((e) => { $("loading").textContent = `FAILED TO LOAD: ${e.message}`; console.error(e); });

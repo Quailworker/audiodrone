@@ -10,6 +10,7 @@ import argparse
 import base64
 import io
 import json
+import math
 import re
 import threading
 import time
@@ -96,7 +97,7 @@ async def api_terrain(request):
                          "texture": "data:image/png;base64," + base64.b64encode(tex).decode()})
 
 
-def _run_job(job_id, scn):
+def _run_job(job_id, scn, post=None, workers=6):
     from .pipeline import run
     job = JOBS[job_id]
     out = RUNS / job_id
@@ -106,9 +107,11 @@ def _run_job(job_id, scn):
     def progress(msg):
         job["progress"].append([round(time.time() - job["t0"], 1), msg])
     try:
-        res = run(scn, out, progress=progress)
+        res = run(scn, out, progress=progress, workers=workers)
         res["id"] = job_id
         (out / "result.json").write_text(json.dumps(res))
+        if post is not None:
+            post(job_id, scn, res)
         job["status"] = "done"
     except Exception as e:  # noqa: BLE001 - a failed run is reported to the tool, never kills the server
         job["status"] = "error"
@@ -222,10 +225,13 @@ async def api_incidents(request):
 
 
 def _incident(iid):
-    f = BORDER_DATA / "incidents" / f"{iid}.json"
-    if "/" in iid or ".." in iid or not f.exists():
+    if not iid or "/" in iid or ".." in iid:
         return None
-    return json.loads(f.read_text())
+    for d in ("incidents", "user"):
+        f = BORDER_DATA / d / f"{iid}.json"
+        if f.exists():
+            return json.loads(f.read_text())
+    return None
 
 
 async def api_sitedata(request):
@@ -276,14 +282,135 @@ async def api_federated(request):
 
 async def api_incident(request):
     iid = request.path_params["iid"]
-    f = BORDER_DATA / "incidents" / f"{iid}.json"
-    if "/" in iid or ".." in iid or not f.exists():
+    if "/" in iid or ".." in iid:
         return JSONResponse({"error": "unknown incident"}, status_code=404)
-    return FileResponse(f, media_type="application/json")
+    for d in ("incidents", "user"):
+        f = BORDER_DATA / d / f"{iid}.json"
+        if f.exists():
+            return FileResponse(f, media_type="application/json")
+    return JSONResponse({"error": "unknown incident"}, status_code=404)
+
+
+# ---- Build mode: place clusters and drones on the tactical screen, run the whole chain, replay it there
+BUILD_MAX = {"clusters": 24, "drones": 6, "half_m": 6000.0}
+STAGES = [("rendering sound", "Simulating what every microphone hears"), ("rendered cluster", "Simulating what every microphone hears"),
+          ("CNN detection", "Neural network listening for drones"), ("frequency tracking", "Finding each drone's tones"),
+          ("direction finding", "Working out the direction at each cluster"), ("tracking and alerts", "Tracking and sending alerts"),
+          ("done", "Done")]
+
+
+def _build_scenario(q):
+    """Client request -> a full scenario (terra/scenario.py format), with the border lines when near the border."""
+    from .border import load as load_border
+    from .border import local_border, nearest_border_point
+    lat, lon = float(q["origin"][0]), float(q["origin"][1])
+    pts = [p for p in q.get("clusters", [])] + [w for d in q.get("drones", []) for w in d.get("waypoints", [])]
+    extent = max([max(abs(float(x)), abs(float(y))) for x, y in pts] or [1000.0])
+    half = float(min(max(extent + 600.0, 1500.0), BUILD_MAX["half_m"]))
+    doc = load_border()
+    sector, blon, blat, _ = nearest_border_point(doc, lat, lon)
+    from .dem import metres_per_degree
+    m_lat, m_lon = metres_per_degree(lat)
+    near = math.hypot((blon - lon) * m_lon, (blat - lat) * m_lat) < half + 3000
+    return {"origin": [lat, lon], "half_m": half, "terrain": True, "mount": "ground",
+            "clusters": [[round(float(x), 1), round(float(y), 1)] for x, y in q.get("clusters", [])],
+            "sites": q.get("sites", []),
+            "drones": [{"cls": d["cls"], "waypoints": [[round(float(x), 1), round(float(y), 1)] for x, y in d["waypoints"]],
+                        "agl": float(d.get("agl", 60)), "speed": float(d.get("speed", 12)), "alt_mode": "agl"}
+                       for d in q.get("drones", [])],
+            "border": local_border(doc, lat, lon, half) if near else [],
+            "ambient": q.get("ambient", "desert"), "temp_c": float(q.get("temp_c", 35)), "rh": float(q.get("rh", 30)),
+            "seed": int(q.get("seed", 7)), "chain": "v2",
+            "area_name": str(q.get("name") or "Built scenario")[:60],
+            "_sector": sector["id"] if near else "SITE", "_neighbour": sector["neighbour"] if near else ""}
+
+
+def _build_check(scn):
+    if len(scn["clusters"]) < 2:
+        return "Place at least 2 microphone clusters: a position needs two directions."
+    if len(scn["clusters"]) > BUILD_MAX["clusters"]:
+        return f"At most {BUILD_MAX['clusters']} clusters per run."
+    if not scn["drones"]:
+        return "Draw at least one drone path."
+    if len(scn["drones"]) > BUILD_MAX["drones"]:
+        return f"At most {BUILD_MAX['drones']} drones per run."
+    for d in scn["drones"]:
+        if d["cls"] not in DRONE_CLASSES:
+            return "Unknown drone type."
+        if len(d["waypoints"]) < 2:
+            return "Each drone needs at least 2 points on its path."
+    if scn["ambient"] not in AMBIENT:
+        return "Unknown background noise."
+    return None
+
+
+async def api_build_ranges(request):
+    from .build import ranges
+    return JSONResponse(ranges())
+
+
+async def api_build_estimate(request):
+    from .build import estimate_s
+    scn = _build_scenario(await request.json())
+    return JSONResponse({"estimate_s": estimate_s(scn), "error": _build_check(scn), "half_m": scn["half_m"],
+                         "near_border": bool(scn["border"])})
+
+
+def _save_replay(job_id, scn, res):
+    from .replay import compact
+    rep = compact(res, scn, {"id": job_id, "name": scn["area_name"], "sector": scn["_sector"],
+                             "neighbour": scn["_neighbour"], "t0": 0, "built": True})
+    d = BORDER_DATA / "user"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{job_id}.json").write_text(json.dumps(rep, separators=(",", ":")))
+
+
+async def api_build_run(request):
+    scn = _build_scenario(await request.json())
+    err = _build_check(scn)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    if not LOCK.acquire(blocking=False):
+        return JSONResponse({"error": "Another simulation is running. Wait for it to finish."}, status_code=409)
+    job_id = "B" + time.strftime("%m%d-%H%M%S")
+    JOBS[job_id] = {"status": "running", "progress": [], "t0": time.time()}
+    threading.Thread(target=_run_job, args=(job_id, scn, _save_replay, 3), daemon=True).start()
+    return JSONResponse({"id": job_id})
+
+
+async def api_build_status(request):
+    """Plain-language progress of a build run: stage, fraction, and the replay id when it is done."""
+    job = JOBS.get(request.path_params["job_id"])
+    if job is None:
+        return JSONResponse({"error": "unknown run"}, status_code=404)
+    last = job["progress"][-1][1] if job["progress"] else "starting"
+    stage = next((label for key, label in STAGES if key in last), "Starting")
+    frac = 0.02
+    m = re.search(r"\((\d+)/(\d+)\)", last)
+    if m:
+        frac = 0.05 + 0.7 * int(m.group(1)) / int(m.group(2))
+    else:
+        frac = {"Neural network listening for drones": 0.78, "Finding each drone's tones": 0.84,
+                "Working out the direction at each cluster": 0.9, "Tracking and sending alerts": 0.96,
+                "Done": 1.0}.get(stage, frac)
+    return JSONResponse({"status": job["status"], "stage": stage, "detail": last, "fraction": round(frac, 3),
+                         "elapsed_s": round(time.time() - job["t0"]), "error": job.get("error"),
+                         "replay": request.path_params["job_id"] if job["status"] == "done" else None})
+
+
+async def api_build_list(request):
+    d = BORDER_DATA / "user"
+    rows = []
+    for f in sorted(d.glob("*.json"), reverse=True)[:20] if d.exists() else []:
+        r = json.loads(f.read_text())
+        rows.append({"id": r["id"], "name": r["name"], "duration": r["duration"], "clusters": len(r["clusters"]),
+                     "drones": len(r["truth"])})
+    return JSONResponse(rows)
 
 
 app = Starlette(routes=[
-    Route("/", index),
+    Route("/", border_page),
+    Route("/classic", index),
     Route("/api/overview", api_overview),
     Route("/api/terrain", api_terrain),
     Route("/api/run", api_run, methods=["POST"]),
@@ -299,6 +426,11 @@ app = Starlette(routes=[
     Route("/api/sitedata/{iid}", api_sitedata),
     Route("/api/ask", api_ask, methods=["POST"]),
     Route("/api/federated", api_federated),
+    Route("/api/build/ranges", api_build_ranges),
+    Route("/api/build/estimate", api_build_estimate, methods=["POST"]),
+    Route("/api/build/run", api_build_run, methods=["POST"]),
+    Route("/api/build/status/{job_id}", api_build_status),
+    Route("/api/build/list", api_build_list),
     Mount("/static", StaticFiles(directory=STATIC), name="static"),
 ], middleware=[Middleware(GZipMiddleware, minimum_size=2048)])
 

@@ -1,6 +1,15 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.11, 2026-10-25.
+- **Status:** draft v0.12, 2026-10-26.
+  - v0.12:
+    - **Build mode** on the tactical screen: place microphone clusters, draw drone paths, run the full chain, replay it. Each cluster shows a 3D listening dome, sized from a range model fitted to the full simulation (`terra/build.py`).
+    - **Abu Dhabi swarm test** (`results/swarm_abudhabi/`): in town noise, a small electric quad is heard only within about 170 m, so a mixed swarm hides behind its loudest member.
+    - **Ghost tracks reduced** (Q49), in the terra chain's tracker settings (`terra/pipeline.py` TRACKER_KW):
+      - a new track needs a third cluster to agree;
+      - nothing above 800 m over the ground;
+      - tracks within 150 m in plan merge whatever their heights.
+
+      Extra tracks fell from 3.5 to 0.2 on a two-drone test and from 8.7 to 1.3 at Liwa (`scripts/retrack_eval.py`). Two drones heard by the same clusters still show as one, because each cluster reports a single direction (Q40).
   - v0.11 adds **Border watch** and connects the sponsor tools (13.8):
     - the operator screen for the 1,024 km UAE land border, with 3,395 flat clusters in two rows (D-30 at the 600 m spacing of 13.7.5) and six simulated incidents through the full chain;
     - a fixed-logic **border monitor** ("near the border" and "crossed the border", once per intruder and sector);
@@ -2130,7 +2139,7 @@ Most critical flaws are in Claude's extensions: the single-f₀ Doppler model, t
 46. Tripwire clusters (D-36) for warning time: the 100 m field gives 5–20 s, enough only for take cover in place.
 47. Add shelter capacity to the core's evacuation plan (Nemotron Lightning spotted 85 people for an 80-place shelter, 13.6.6).
 48. Doppler as frequency differences between pairs of clusters locked on the same line identity, instead of one ln f₀ state per track (13.7.3).
-49. Ghost tracks: one drone becomes 12–22 track IDs over a border crossing (13.8.4). Tighten births (more rays, a height prior) and merge tracks with the same course.
+49. Ghost tracks: one drone becomes 12–22 track IDs over a border crossing (13.8.4). Tighten births (more rays, a height prior) and merge tracks with the same course. **v0.12: done for the terra chain** (three-ray births, an 800 m height cap, plan merging within 150 m): extra tracks −80 to −95 %. The remaining ghosts come from bad bearings from far clusters.
 50. A Nemotron lane in Nightshift's local runtime on the GPU PC, so operator questions and their facts stay on site (13.8.3).
 51. Sensor placement for border warning: clusters 300–900 m behind the line hear a quiet drone in mountains or town noise only at the line (13.8.4). Consider clusters on high ground, or an outer row where the border allows.
 

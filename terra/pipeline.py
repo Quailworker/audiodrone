@@ -108,12 +108,35 @@ def run(scn, out_dir, progress=print, workers=6):
     aud = np.stack([audible(truth, meta, k) for k in range(K)])
     det = p_cnn >= P_DET
     use = det & (coh >= COH_GATE)
+    frames, events = track_and_alert(scn, terrain, centres, tf, U, use, det, p_cnn, pitch, doppler, out_dir / "alerts.jsonl")
+    result = package(scn, shared, clusters, truth, tf, p_cnn, det, use, aud, U, coh, frames, events)
+    result["pitch_hz"] = np.round(np.where(np.isfinite(pitch[..., 0]), pitch[..., 0], 0), 1).tolist()
+    result["chain"] = "v2" if v2 else "v1"
+    result["timing"] = {"render_s": round(t_render, 1), "total_s": round(time.time() - t0, 1)}
+    progress("done")
+    return result
+
+
+# Tracker settings for this chain (v0.12). Flat ground clusters fix height poorly, and bad bearings from far
+# clusters cross in odd places, so one drone used to become many tracks (scripts/retrack_eval.py):
+#   birth_rays=3, confirm_deg=4   a new track needs a third cluster pointing at it (when 3+ clusters hear)
+#   max_agl_m=800                 nothing we could hear flies higher; such crossings are ghosts
+#   merge_h_m=150, merge_dv=25, birth_excl_m=150   tracks within 150 m in plan (velocities within 25 m/s) are one
+#                                 drone whatever their heights; two real drones closer than that are shown as one
+TRACKER_KW = {"sigma_u": 0.04, "birth_range": 4000.0, "birth_rays": 3, "confirm_deg": 4.0, "max_agl_m": 800.0,
+              "merge_h_m": 150.0, "merge_dv": 25.0, "birth_excl_m": 150.0}
+
+
+def track_and_alert(scn, terrain, centres, tf, U, use, det, p_cnn, pitch, doppler, log_path, tracker_kw=None):
+    """The EKF over all clusters' directions, then the alert core and the border monitor, frame by frame.
+    Returns (frames for the result, the core's events)."""
+    K = len(centres)
     Track._next = 0
-    trk = Tracker(centres, flat=True, sigma_u=0.04, ground=terrain.height, birth_range=4000.0)
+    trk = Tracker(centres, flat=True, ground=terrain.height, **(TRACKER_KW if tracker_kw is None else tracker_kw))
     site = SiteDict({"sites": scn.get("sites", []), "shelters": scn.get("shelters", []),
                      "groups": scn.get("groups", []), "origin_latlon": list(scn.get("origin", [0, 0]))})
-    (out_dir / "alerts.jsonl").unlink(missing_ok=True)                             # a rerun into the same folder starts afresh
-    log = LogSink(out_dir / "alerts.jsonl")
+    Path(log_path).unlink(missing_ok=True)                                         # a rerun into the same folder starts afresh
+    log = LogSink(log_path)
     core = AlertCore(site, Delivery([log]), ApprovalQueue(auto_after_s=15.0), cluster_xy=centres[:, :2])
     border = BorderMonitor(scn["border"], core._send, core.rate_track) if scn.get("border") else None
     heard_since, history, frames = None, [], []
@@ -146,12 +169,7 @@ def run(scn, out_dir, progress=print, workers=6):
                                    "sx": round(float(np.sqrt(tr.P[0, 0])), 1), "sy": round(float(np.sqrt(tr.P[1, 1])), 1),
                                    "sz": round(float(np.sqrt(tr.P[2, 2])), 1), "n": tr.n_upd}
                                   for tr in tracks if tr.n_upd >= 5]})
-    result = package(scn, shared, clusters, truth, tf, p_cnn, det, use, aud, U, coh, frames, core.events)
-    result["pitch_hz"] = np.round(np.where(np.isfinite(pitch[..., 0]), pitch[..., 0], 0), 1).tolist()
-    result["chain"] = "v2" if v2 else "v1"
-    result["timing"] = {"render_s": round(t_render, 1), "total_s": round(time.time() - t0, 1)}
-    progress("done")
-    return result
+    return frames, core.events
 
 
 def package(scn, shared, clusters, truth, tf, p_cnn, det, use, aud, U, coh, frames, events):

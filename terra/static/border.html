@@ -36,13 +36,48 @@
   <button id="bannerGo" type="button">FOCUS</button>
 </div>
 
-<aside class="panel left" aria-label="Incidents and sectors">
-  <h2>INCIDENTS <span class="dim">SIMULATED · CLICK TO VIEW</span></h2>
-  <div class="incidents" id="incidents"></div>
-  <details class="secbox">
-    <summary><h2>ALL SECTORS <span class="dim" id="secCount"></span></h2></summary>
-    <div class="sectors" id="sectors"></div>
-  </details>
+<aside class="panel left" aria-label="Incidents, sectors and build mode">
+  <div class="tabs" role="tablist">
+    <button type="button" id="tabWatch" class="on" role="tab">WATCH</button>
+    <button type="button" id="tabBuild" role="tab">BUILD A TEST</button>
+  </div>
+  <div id="watchPane">
+    <h2>INCIDENTS <span class="dim">SIMULATED · CLICK TO VIEW</span></h2>
+    <div class="incidents" id="incidents"></div>
+    <details class="secbox">
+      <summary><h2>ALL SECTORS <span class="dim" id="secCount"></span></h2></summary>
+      <div class="sectors" id="sectors"></div>
+    </details>
+  </div>
+  <div id="buildPane" hidden>
+    <div class="bstep" id="bs1">
+      <div class="bh"><span class="n">1</span>PLACE TO PROTECT</div>
+      <p class="bt" id="bPlaceText">Pick a ready-made test, or click <b>Pick on map</b> and click the site you want to protect.</p>
+      <div class="presets" id="bPresets"></div>
+      <button type="button" id="bPick" class="tool">⌖ Pick on map</button>
+    </div>
+    <div class="bstep" id="bs2">
+      <div class="bh"><span class="n">2</span>MICROPHONES</div>
+      <label class="bl">Background noise <select id="bAmb"></select></label>
+      <div class="brow"><button type="button" id="bMic" class="tool">＋ Place microphones</button><button type="button" id="bMicClear">Clear</button></div>
+      <p class="bt" id="bMicText">Each dome shows how far a microphone cluster can hear the drone type chosen below.</p>
+    </div>
+    <div class="bstep" id="bs3">
+      <div class="bh"><span class="n">3</span>DRONE</div>
+      <div class="dtypes" id="bTypes"></div>
+      <label class="bl">Height <input type="range" id="bAgl" min="20" max="200" step="10" value="60"> <span id="bAglV">60 m</span></label>
+      <label class="bl">Speed <input type="range" id="bSpd" min="5" max="40" step="1" value="14"> <span id="bSpdV">14 m/s</span></label>
+      <div class="brow"><button type="button" id="bDraw" class="tool">✎ Draw drone path</button><button type="button" id="bDroneDone" hidden>✓ Finish path</button></div>
+      <div id="bDrones" class="blist"></div>
+    </div>
+    <div class="bstep" id="bs4">
+      <div class="bh"><span class="n">4</span>RUN</div>
+      <p class="bt" id="bEst">Place microphones and a drone first.</p>
+      <button type="button" id="bRun" class="big" disabled>▶ RUN SIMULATION</button>
+    </div>
+    <h2>MY TESTS <span class="dim">CLICK TO REPLAY</span></h2>
+    <div id="bList" class="blist"></div>
+  </div>
 </aside>
 
 <aside class="panel right" aria-label="Event log and questions">
@@ -68,6 +103,15 @@
 </nav>
 
 <section class="card" id="card" hidden aria-label="Selected track"></section>
+<div class="instr" id="instr" hidden></div>
+<div class="caption" id="caption" hidden aria-live="polite"></div>
+<section class="runcard" id="runcard" hidden aria-label="Simulation progress">
+  <h2>RUNNING THE SIMULATION</h2>
+  <div class="stage" id="runStage">Starting</div>
+  <div class="pbar"><div id="runBar"></div></div>
+  <div class="dim" id="runTime"></div>
+  <p class="bt">Every microphone's sound is simulated on the real terrain, then our neural network, direction finder and tracker run on it exactly as they would on real microphones.</p>
+</section>
 
 <div class="layers" role="group" aria-label="Layers">
   <label><input type="checkbox" id="lyrClusters" checked> CLUSTERS</label>
@@ -75,6 +119,7 @@
   <label><input type="checkbox" id="lyrGrid" checked> GRID</label>
   <label title="Where the simulated drone really was. Not available to an operator."><input type="checkbox" id="lyrTruth"> SIM TRUTH</label>
   <label title="Fly to each incident as it happens, and back out when it ends"><input type="checkbox" id="follow" checked> AUTO-FOLLOW</label>
+  <label id="lyrRangesWrap" hidden title="How far each microphone cluster can hear"><input type="checkbox" id="lyrRanges" checked> RANGES</label>
   <button id="helpBtn" type="button" aria-label="Show the legend">? LEGEND</button>
   <button id="zetBtn" type="button" title="Questions across the sector, fusion and operations databases, through Zetaris">ZETARIS ▴</button>
   <label class="ex">RELIEF <input type="range" id="exag" min="1" max="6" step="0.5" value="3" aria-label="Vertical exaggeration"> <span id="exagV">3×</span></label>

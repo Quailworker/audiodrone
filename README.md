@@ -28,11 +28,17 @@ Earlier status (design v0.9, models v0.5, 2026-10-23): Phase 1 localisation buil
 
 ## Live demo
 
-The live demo is the **UAE terrain tool**. It runs in your browser:
-1. Pick an area of the UAE.
-2. Place mic clusters, a protected site and a drone flight on the 3D terrain.
-3. Press Run. It renders the sound every mic would hear, then runs the real CNN, direction finding, the tracker and the alerts.
-4. Play it back in 3D: the true drone against the tracked one, clusters lighting up when they hear it, bearings, line of sight (red when a hill blocks it), and the alert feed.
+The live demo is **Border watch**, a tactical 3D screen of the UAE, at **http://127.0.0.1:8790**. It has two modes:
+- **WATCH:** the whole land border, with six simulated incidents replayed (see [Border watch](#border-watch-operator-screen)).
+- **BUILD A TEST:**
+  1. Pick a place to protect (or a ready-made test).
+  2. Click to place microphone clusters. Each shows **how far it can hear** the chosen drone type in the chosen background noise, and the lines between neighbours turn amber or red when they are **too far apart** for two clusters to hear a drone.
+  3. Pick a drone type, height and speed, and click its path.
+  4. Press **Run**. It renders the sound every microphone would hear on the real terrain and runs the real CNN, frequency tracker, direction finding, tracker and alerts. A test takes 1–3 minutes.
+
+  It then replays in the same screen with plain-language captions ("1 microphone hears a drone…", "Position fixed from 3 microphones…").
+
+The older terrain tool is still at http://127.0.0.1:8790/classic.
 
 **You need:**
 - Linux or Windows with Python 3.10+.
@@ -50,11 +56,20 @@ bash scripts/get_dem_uae.sh                                             # 3. UAE
 .venv/bin/python -m terra.server                                        # 4. start the tool, leave it running
 ```
 
-5. Open **http://127.0.0.1:8790** in a browser.
-6. Under **1 Area**, choose an **Example scenario**, then press **Run simulation**. "Over the ridge to a camp on the plain" is a gentle start; "Mountain site in the Hajar" shows hills blocking the sound. The progress log runs under the button, and a run takes about 30–70 s.
-7. When the results band appears at the bottom, press **Focus** (top right), then **Play**. You can change the speed (1×, 4×, 10×) or drag the timeline. The **▶** buttons in the cluster table play what that cluster heard.
+5. Open **http://127.0.0.1:8790** in a browser. Close the legend, then click **BUILD A TEST**.
+6. Click **Desert border post · Liwa** (a ready-made test), then **▶ RUN SIMULATION**. The progress card says what is happening, and the run takes about 2 minutes.
+7. The replay starts by itself. Switch on **SIM TRUTH** to compare the real drone with the track. **◂ EDIT TEST** goes back to change it; your tests are listed under **My tests**.
 
-**Build your own scenario:**
+How far a cluster hears (the listening circles), as used by build mode (`terra/build.py`; a guide on open ground, fitted to the full simulation):
+
+| Background | FPV | 7–12" quad | Petrol multirotor | Petrol fixed-wing |
+|---|---|---|---|---|
+| Quiet desert | 1,170 m | 860 m | 2,280 m | 2,610 m |
+| Windy desert | 670 m | 460 m | 1,490 m | 1,760 m |
+| Town | 260 m | 170 m | 700 m | 860 m |
+| Highway | 110 m | 70 m | 330 m | 420 m |
+
+**The older terrain tool** (http://127.0.0.1:8790/classic), with its own scenario builder:
 1. Choose a preset area, or click the UAE map, then press **Load area**.
 2. Under **2 Place**:
    - **Square of 5**, then click the ground: places five clusters at the set spacing.
@@ -125,7 +140,8 @@ bash scripts/demo_check.sh --start    # starts what it safely can, checks the re
 | `terra/dem.py` | UAE terrain: Copernicus DEM tiles to a local metre grid, heights, ground slope, line of sight and knife-edge screening |
 | `terra/scenario.py` | Renders a hand-built scenario on the terrain (cluster heights, sloped-ground echo, hills blocking sound), clusters in parallel |
 | `terra/pipeline.py` | Runs the chain on a rendered scenario: CNN, beamformer, tracker over terrain, alert core; packages the result |
-| `terra/server.py`, `terra/static/` | The web tool (Starlette + three.js), see [Live demo](#live-demo) |
+| `terra/server.py`, `terra/static/` | The web tool (Starlette + three.js): Border watch at `/` with BUILD mode, the older terrain tool at `/classic`. See [Live demo](#live-demo) |
+| `terra/build.py`, `terra/replay.py` | Build mode: listening ranges and run-time estimates; a chain result to the replay the screen plays |
 | `terra/examples/` | Example scenarios shown in the tool |
 | `scripts/get_dem_uae.sh`, `scripts/terra_check.py` | DEM download; command-line check of the tool |
 | `results/M2_logf_comb/` | Model 2 (log-f + whitened spectrum + harmonic-comb channels): training log and evaluations |

@@ -161,7 +161,9 @@ Success:
 
 Small differences from GPU arithmetic are fine. A missing take-cover alert, or no tracks at all, is not.
 
-To show it to a person: open http://127.0.0.1:8790, choose an **Example scenario**, press **Run simulation**, then **Focus** and **Play** (README, Live demo).
+To show it to a person: open http://127.0.0.1:8790 (Border watch), click **BUILD A TEST**, then **Desert border post · Liwa**, then **▶ RUN SIMULATION**. It replays by itself after about 2 minutes (README, Live demo). The older tool with the example scenarios is at `/classic`.
+
+Build mode limits: 2–24 clusters and 1–6 drones per run, everything within about 5 km of the site, one run at a time. Runs execute inside the server process, so start it under a memory cap (`demo_check.sh --start` uses 10 GB). Built tests are saved in `terra/data/user/` (git-ignored).
 
 If it fails:
 
@@ -257,6 +259,7 @@ It starts the terra server and the containers if they are down, then checks Zeta
   - Flat clusters give compass bearings (median 4–30° error per cluster in the examples) but poor elevation (about 45° estimated against 15° true). The tool therefore draws bearings level.
   - With clusters 100–300 m apart, a drone more than about 500 m out often gets several short tracks and late or wrong "over it now" alerts.
 - Border watch (simulated incidents):
-  - **Ghost tracks:** one drone becomes several track IDs (Liwa 22, Ghuwaifat 12), some at implausible heights. The border monitor reports each intruder once per sector, but the Zetaris all-sectors view and the event log show the fragments.
+  - **Ghost tracks:** reduced in v0.12 (terra chain: three-ray births, an 800 m height cap, plan merging within 150 m; `python scripts/retrack_eval.py <run dir>` measures them). Liwa now peaks at 5 tracks for one drone, down from 14.
+  - **Two drones close together often show as one:** each cluster reports one direction per moment, toward the loudest drone (design Q40).
   - **No early warning in two places:** a quiet electric drone was heard only at the border in the Hajar mountains (Hatta) and only 0.8 km inside in town noise (Al Ain). The two-stroke incidents were heard 1–1.4 km out and tracked before they crossed.
   - The NVIDIA provider in Nightshift is hosted, so Ask questions and their facts leave the machine. That is fine for the simulated demo data; real personnel data needs Nightshift's local runtime.
