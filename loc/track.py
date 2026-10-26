@@ -47,6 +47,16 @@ GATE_F_CHI2 = 9.0                 # chi-square, 1 dof (3 sigma), for the pitch
 NX = 8
 
 
+# Tracker profile for flat ground clusters (design v0.12-v0.13; terra/pipeline.py uses it). The bare Tracker
+# defaults stay as in v0.9 so the Phase 1 results reproduce; any chain opts in with Tracker(..., **TRACKER_V12).
+#   birth_rays=3, confirm_deg=4      a new track needs a third cluster's bearing to agree (when 3+ clusters hear)
+#   max_agl_m=800                    nothing we could hear flies higher; rays crossing up there are ghosts
+#   merge_h_m=150, birth_excl_m=150  one direction per cluster: two tracks within 150 m in plan are one drone
+#   merge_ang_deg=4, merge_floor_m=40  several directions per cluster: merge only what no cluster can tell apart
+TRACKER_V12 = {"birth_rays": 3, "confirm_deg": 4.0, "max_agl_m": 800.0, "merge_h_m": 150.0, "merge_dv": 25.0,
+               "birth_excl_m": 150.0, "merge_ang_deg": 4.0, "merge_floor_m": 40.0}
+
+
 class Track:
     _next = 0
 
@@ -67,7 +77,7 @@ class Tracker:
                  gate=GATE_CHI2, emission_correction=True, ground=None, birth_range=1500.0,
                  q_f=1e-3, sigma_lnf=0.003, merge_h_m=None, birth_excl_m=None, merge_dv=6.0,
                  max_agl_m=None, min_support=None, support_s=2.0, max_speed=None, max_vz=None,
-                 birth_rays=2, confirm_deg=6.0):
+                 birth_rays=2, confirm_deg=6.0, merge_ang_deg=None, merge_floor_m=40.0, merge_k=3.0):
         # Flat ground clusters fix height poorly, so tracks on one drone can agree in plan but differ by
         # hundreds of metres in height. merge_h_m / birth_excl_m (None = off, the v0.11 behaviour) merge
         # tracks and refuse births by horizontal distance, ignoring height: see merge() and birth().
@@ -82,6 +92,19 @@ class Tracker:
         # ghost. birth_rays=3 asks a third cluster's free direction to point at the candidate within
         # confirm_deg (in azimuth) before a track starts, whenever 3 or more clusters gave free directions.
         self.birth_rays, self.confirm = birth_rays, np.radians(confirm_deg)
+        # Swarm-safe duplicate handling (merge_ang_deg set; replaces the fixed merge_h_m / birth_excl_m):
+        # two tracks are one drone if they are within max(merge_floor_m, merge_k x their combined horizontal sd)
+        # or if no cluster that recently heard them sees them more than merge_ang_deg apart in azimuth (the
+        # data cannot tell them apart); and a birth is refused when both its rays point at an existing track
+        # (they are that track's bearings). Two real drones that some cluster sees apart stay two tracks.
+        self.merge_ang = None if merge_ang_deg is None else np.radians(merge_ang_deg)
+        self.merge_floor, self.merge_k = merge_floor_m, merge_k
+        # Which rule applies depends on the front end. With one direction per cluster per frame, a cluster can
+        # only ever feed one of two close tracks, so a second track near the first is always a duplicate and
+        # the fixed merge_h_m / birth_excl_m rule is right (two drones that close cannot be told apart). Once
+        # clusters report several directions (one per tone line), the swarm-safe rule above is used instead.
+        # multi_recent is the last time any cluster gave 2+ directions in one frame.
+        self.multi_recent = -np.inf
         self.c = np.asarray(centres, float)
         self.ground = ground or (lambda x, y: 0.0)
         self.birth_range = birth_range
@@ -188,6 +211,11 @@ class Tracker:
             tr.s = self.F @ tr.s
             tr.P = self.F @ tr.P @ self.F.T + self.Q
         used = set()
+        per_cluster = {}
+        for k, _ in meas:
+            per_cluster[k] = per_cluster.get(k, 0) + 1
+        if any(n >= 2 for n in per_cluster.values()):
+            self.multi_recent = t                                   # the front end reports several directions
         if self.tracks and meas:
             cost = np.full((len(self.tracks), len(meas)), 1e6)
             for i, tr in enumerate(self.tracks):
@@ -246,14 +274,46 @@ class Tracker:
             keep.append(tr)
         self.tracks = keep
 
+    def _swarm_rule(self, t):
+        return self.merge_ang is not None and t - self.multi_recent <= self.support_s
+
     def _same(self, a, b, dist):
         if np.linalg.norm(a.s[:3] - b.s[:3]) <= dist:
             return True
+        if self._swarm_rule(max(a.t_last, b.t_last)):
+            return self._indistinct(a, b)
         if self.merge_h_m is None:
             return False
         sd = np.sqrt(max(a.P[0, 0], a.P[1, 1]) + max(b.P[0, 0], b.P[1, 1]))
         return (np.linalg.norm(a.s[:2] - b.s[:2]) <= max(self.merge_h_m, 2.0 * sd)
                 and np.linalg.norm(a.s[3:5] - b.s[3:5]) <= self.merge_dv)
+
+    def _az(self, k, p):
+        d = p - self.c[k]
+        return np.arctan2(d[0], d[1])
+
+    def _indistinct(self, a, b):
+        """True if a and b are one drone as far as the data can tell (see __init__, merge_ang_deg)."""
+        if np.linalg.norm(a.s[3:5] - b.s[3:5]) > self.merge_dv:
+            return False
+        gap = np.linalg.norm(a.s[:2] - b.s[:2])
+        sd = np.sqrt(max(a.P[0, 0], a.P[1, 1]) + max(b.P[0, 0], b.P[1, 1]))
+        if gap <= max(self.merge_floor, self.merge_k * sd):
+            return True
+        t = max(a.t_last, b.t_last)
+        ks = {k for tr in (a, b) for k, tk in tr.heard_by.items() if t - tk <= self.support_s}
+        if len(ks) < 2:
+            return False
+        return all(abs((self._az(k, a.s[:3]) - self._az(k, b.s[:3]) + np.pi) % (2 * np.pi) - np.pi) <= self.merge_ang
+                   for k in ks)
+
+    def _explained(self, k1, z1, k2, z2):
+        """True if both rays point at one existing track: they are its bearings, not a new drone."""
+        for o in self.tracks:
+            if all(abs((np.arctan2(z[0], z[1]) - self._az(k, o.s[:3]) + np.pi) % (2 * np.pi) - np.pi) <= self.confirm
+                   for k, z in ((k1, z1), (k2, z2))):
+                return True
+        return False
 
     def update(self, tr, k, z):
         y, S, H, R = self.innovation(tr, k, z)
@@ -282,7 +342,10 @@ class Tracker:
             rng = min(np.linalg.norm(p - self.c[k1]), np.linalg.norm(p - self.c[k2]))
             if gap > 3.0 + 0.05 * rng or ang < np.radians(5):
                 continue
-            if self.birth_excl_m is not None and any(np.linalg.norm(p[:2] - o.s[:2]) <= self.birth_excl_m for o in self.tracks):
+            if self._swarm_rule(t):
+                if self._explained(k1, z1, k2, z2):
+                    continue                # both rays point at an existing track: its bearings, not a new drone
+            elif self.birth_excl_m is not None and any(np.linalg.norm(p[:2] - o.s[:2]) <= self.birth_excl_m for o in self.tracks):
                 continue                    # an existing track is already there in plan: a duplicate, not a new drone
             score = ang - gap / 100
             if need3:

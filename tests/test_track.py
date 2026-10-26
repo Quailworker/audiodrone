@@ -1,6 +1,7 @@
 """Tracker on perfect and noisy synthetic measurements (tasks/phase1_localisation.md step 3)."""
 import numpy as np
 
+from loc.track import TRACKER_V12 as SWARM_SAFE  # the profile the simulator chain uses
 from loc.track import closest_point, run_tracker
 from sim.acoustics import emission_time, interp_path
 from sim.layouts import field
@@ -157,3 +158,48 @@ def test_birth_needs_a_third_cluster_when_three_hear():
     trk = Tracker(C, flat=True, birth_rays=3, confirm_deg=4.0, birth_range=5000.0)
     trk.birth(0.0, free)
     assert len(trk.tracks) == 1 and np.linalg.norm(trk.tracks[0].s[:2] - drone[:2]) < 30
+
+
+def _swarm_pair(gap_m, seed=0, **kw):
+    """Two drones flying side by side gap_m apart past a ring of 8 flat clusters (r = 300 m); every cluster
+    reports both drones' directions (as multi-direction finding would), azimuth noise 1.5 deg, elevation 10 deg.
+    Returns the number of confirmed tracks and of drones with a track within 25 m, per frame after 15 s."""
+    from loc.track import Track, Tracker
+    rng = np.random.default_rng(seed)
+    C = np.array([[300 * np.sin(a), 300 * np.cos(a), 0.0] for a in np.arange(8) * np.pi / 4])
+    Track._next = 0
+    trk = Tracker(C, flat=True, sigma_u=0.04, emission_correction=False, birth_range=2000.0, **kw)
+    counts, held = [], []
+    for i in range(500):
+        t = i * 0.1
+        drones = [np.array([-300 + 12 * t, y, 60.0]) for y in (-gap_m / 2, gap_m / 2)]
+        meas = []
+        for k, c in enumerate(C):
+            for p in drones:
+                d = p - c
+                az = np.arctan2(d[0], d[1]) + np.radians(rng.normal(0, 1.5))
+                el = np.arctan2(d[2], np.hypot(d[0], d[1])) + np.radians(rng.normal(0, 10.0))
+                meas.append((k, np.array([np.sin(az) * np.cos(el), np.cos(az) * np.cos(el), np.sin(el)])))
+        trs = [tr for tr in trk.step(t, meas) if tr.n_upd >= 5]
+        if t >= 15:
+            counts.append(len(trs))
+            held.append(sum(1 for p in drones if any(np.hypot(*(tr.s[:2] - p[:2])) < 25 for tr in trs)))
+    return np.array(counts), np.array(held)
+
+
+
+
+def test_two_drones_close_together_stay_two_tracks():
+    """The swarm case: drones 70 m apart near the clusters stay two tracks with the swarm-safe merge; the
+    fixed 150 m merge of v0.12 would have folded them into one."""
+    counts, held = _swarm_pair(70.0, **SWARM_SAFE)
+    assert np.median(counts) == 2 and np.mean(held == 2) > 0.8
+    old_counts, _ = _swarm_pair(70.0, birth_rays=3, confirm_deg=4.0, max_agl_m=800.0, merge_h_m=150.0,
+                                merge_dv=25.0, birth_excl_m=150.0)
+    assert np.median(old_counts) == 1
+
+
+def test_one_drone_gives_one_track_with_swarm_safe_merge():
+    """No duplicates for a single drone heard by every cluster (both 'directions' are the same drone)."""
+    counts, held = _swarm_pair(0.0, **SWARM_SAFE)
+    assert np.mean(counts == 1) > 0.9 and np.mean(held >= 1) > 0.9

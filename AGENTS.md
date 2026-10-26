@@ -260,6 +260,6 @@ It starts the terra server and the containers if they are down, then checks Zeta
   - With clusters 100–300 m apart, a drone more than about 500 m out often gets several short tracks and late or wrong "over it now" alerts.
 - Border watch (simulated incidents):
   - **Ghost tracks:** reduced in v0.12 (terra chain: three-ray births, an 800 m height cap, plan merging within 150 m; `python scripts/retrack_eval.py <run dir>` measures them). Liwa now peaks at 5 tracks for one drone, down from 14.
-  - **Two drones close together often show as one:** each cluster reports one direction per moment, toward the loudest drone (design Q40).
+  - **Two drones close together often show as one:** each cluster reports one direction per moment, toward the loudest drone (design Q40). The tracker is ready for more: when clusters report several directions it switches to a swarm-safe merge that keeps close drones apart (design 13.8.5; `loc/track.py` TRACKER_V12).
   - **No early warning in two places:** a quiet electric drone was heard only at the border in the Hajar mountains (Hatta) and only 0.8 km inside in town noise (Al Ain). The two-stroke incidents were heard 1–1.4 km out and tracked before they crossed.
   - The NVIDIA provider in Nightshift is hosted, so Ask questions and their facts leave the machine. That is fine for the simulated demo data; real personnel data needs Nightshift's local runtime.

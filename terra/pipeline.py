@@ -34,7 +34,7 @@ from loc.evaluate import audible
 from loc.freqtrack import HarmonicTracker
 from loc.render import truth as make_truth
 from loc.run_doa import tracker_weights
-from loc.track import Track, Tracker
+from loc.track import TRACKER_V12, Track, Tracker
 
 from .scenario import FRAME_HZ, FS_OUT, render
 
@@ -117,14 +117,9 @@ def run(scn, out_dir, progress=print, workers=6):
     return result
 
 
-# Tracker settings for this chain (v0.12). Flat ground clusters fix height poorly, and bad bearings from far
-# clusters cross in odd places, so one drone used to become many tracks (scripts/retrack_eval.py):
-#   birth_rays=3, confirm_deg=4   a new track needs a third cluster pointing at it (when 3+ clusters hear)
-#   max_agl_m=800                 nothing we could hear flies higher; such crossings are ghosts
-#   merge_h_m=150, merge_dv=25, birth_excl_m=150   tracks within 150 m in plan (velocities within 25 m/s) are one
-#                                 drone whatever their heights; two real drones closer than that are shown as one
-TRACKER_KW = {"sigma_u": 0.04, "birth_range": 4000.0, "birth_rays": 3, "confirm_deg": 4.0, "max_agl_m": 800.0,
-              "merge_h_m": 150.0, "merge_dv": 25.0, "birth_excl_m": 150.0}
+# Tracker settings for this chain: the flat-cluster profile (loc/track.py TRACKER_V12: three-ray births, an
+# 800 m height cap, and duplicate merging that adapts to whether clusters report one direction or several).
+TRACKER_KW = {"sigma_u": 0.04, "birth_range": 4000.0, **TRACKER_V12}
 
 
 def track_and_alert(scn, terrain, centres, tf, U, use, det, p_cnn, pitch, doppler, log_path, tracker_kw=None):
