@@ -1203,6 +1203,48 @@ function updateCaption(inc, fr, tl) {
   el.hidden = false; el.innerHTML = html;
 }
 
+// ---------------------------------------------------------------- resizable side panels
+// Drag a panel's inner edge (or focus it and use the arrow keys). Each width is clamped to its own range and so
+// that the map in the middle keeps at least MID_MIN pixels; widths are remembered per browser.
+const PANELS = { L: { v: "--lw", def: 290, min: 240, max: 480 }, R: { v: "--rw", def: 360, min: 280, max: 560 } };
+const MID_MIN = 420, EDGE = 12;
+function panelW(side) { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(PANELS[side].v)) || PANELS[side].def; }
+function clampW(side, w) {
+  const p = PANELS[side], other = panelW(side === "L" ? "R" : "L");
+  const room = window.innerWidth - other - 4 * EDGE - MID_MIN;              // what the other panel and the map leave
+  return Math.round(Math.max(p.min, Math.min(p.max, room, w)));
+}
+function setPanelW(side, w, save = true) {
+  const v = clampW(side, w);
+  document.documentElement.style.setProperty(PANELS[side].v, `${v}px`);
+  fatMats.forEach((m) => m.resolution.set(window.innerWidth, window.innerHeight));
+  if (save) { try { localStorage.setItem(`bw-panel-${side}`, String(v)); } catch { /* private mode */ } }
+  return v;
+}
+function initPanelGrips() {
+  for (const side of ["L", "R"]) {
+    let saved = null;
+    try { saved = Number(localStorage.getItem(`bw-panel-${side}`)) || null; } catch { /* private mode */ }
+    if (saved) setPanelW(side, saved, false);
+    const g = $(`grip${side}`);
+    g.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault(); g.setPointerCapture(ev.pointerId); g.classList.add("drag"); document.body.classList.add("resizing");
+      const move = (e) => setPanelW(side, side === "L" ? e.clientX - EDGE : window.innerWidth - e.clientX - EDGE, false);
+      const up = () => {
+        g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", up); g.removeEventListener("pointercancel", up);
+        g.classList.remove("drag"); document.body.classList.remove("resizing"); setPanelW(side, panelW(side));
+      };
+      g.addEventListener("pointermove", move); g.addEventListener("pointerup", up); g.addEventListener("pointercancel", up);
+    });
+    g.addEventListener("dblclick", () => setPanelW(side, PANELS[side].def));
+    g.addEventListener("keydown", (e) => {
+      const grow = side === "L" ? { ArrowRight: 16, ArrowLeft: -16 } : { ArrowLeft: 16, ArrowRight: -16 };
+      if (grow[e.key]) { e.preventDefault(); e.stopPropagation(); setPanelW(side, panelW(side) + grow[e.key]); }
+    });
+  }
+  window.addEventListener("resize", () => { setPanelW("L", panelW("L"), false); setPanelW("R", panelW("R"), false); });
+}
+
 // ---------------------------------------------------------------- main loop
 let tPrev = performance.now(), tUi = 0;
 function loop(t) {
@@ -1234,6 +1276,7 @@ async function start() {
   S.mode = "watch"; S.watchIncidents = S.incidents;
   buildTheatre(); buildBorder(); buildTimeline(); buildPanels(); applyLayers();
   initBuild();
+  initPanelGrips();
   const [X, Z] = proj(54.25, 24.15);
   camera.position.set(X, 900, Z + 900); controls.target.set(X, 0, Z);
   home();
