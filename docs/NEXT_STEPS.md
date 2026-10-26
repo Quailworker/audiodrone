@@ -50,11 +50,11 @@ Remote start from the laptop needs SSH over Tailscale, and the desktop uses Tail
 - The frequency tracker is rebuilt (`loc/freqtrack.py`).
 - Steering on the **tracker's** lines (`bf_trk`) tracks as well as steering on the true lines did, so the oracle is gone.
 - Doppler is built in the EKF but makes full-scene tracking worse, so it is off by default. The next design is pair frequency differences (`results/chain_v2/README.md`).
-- Live input is in `live/` (README section 9).
+- Live input is in `live/` (docs/REPLICATION.md section 9).
 
 Original plan, kept for reference:
 
-**Instructions:** [`tasks/phase1_localisation.md`](tasks/phase1_localisation.md)
+**Instructions:** [`tasks/phase1_localisation.md`](../tasks/phase1_localisation.md)
 
 Why first: height, speed and position feed everything downstream (the likelihood rating D-32, the danger zone D-35, the alerts D-34). Direction accuracy (F4) and the rotor-spread problem (F2) are the biggest untested risks.
 
@@ -91,7 +91,7 @@ Uses the Phase 1 tracks. Instructions to be written after Phase 1 reports.
 
 **Still to connect:**
 - **Meterless Nightshift: connected (2026-10-25).** The Nemotron layer and the Border watch Ask box call Nemotron 3.5 Lightning through Nightshift's API, using its NVIDIA provider (hosted). Nightshift's **local** runtime has no model lane yet. Pick the model under Setup ▸ Runtime on the GPU PC; it is needed before real personnel data is used.
-- **Zetaris: connected (2026-10-25).** It runs locally in Docker and federates the sector sensor stores, the fusion store and the operations store (README section 10).
+- **Zetaris: connected (2026-10-25).** It runs locally in Docker and federates the sector sensor stores, the fusion store and the operations store (docs/REPLICATION.md section 10).
 
 A local MCP server stands in for Zetaris until then; Nemotron Mini on Ollama is the LLM fallback.
 
@@ -104,7 +104,7 @@ Original plan, kept for reference:
 
 ## In parallel (independent of the phases)
 
-- **Detector retrain** (UPGRADES.md priorities 2–6): recall gate, recording-chain augmentation, recall-first thresholds, hard mixtures, wider mid class. One retrain on Anna's 3080. No real negatives (D-25).
+- **Detector retrain** (docs/UPGRADES.md priorities 2–6): recall gate, recording-chain augmentation, recall-first thresholds, hard mixtures, wider mid class. One retrain on Anna's 3080. No real negatives (D-25).
 - **Hardware (D-37, design 9.6):** each cluster is an **ESP32-S3 (8 MB PSRAM) with 4 TDM MEMS mics on one I²S bus**, sending packets; no Raspberry Pi. Build one on the bench first: check the 4 channels are sample-synchronised, stream raw audio over Wi-Fi (mode A) for the prototype, then add the comb trigger and buffered sending (mode B). About $110–235 per cluster (open questions 35, 36).
 - **Field test** (design 14.7): own flyovers, uncompressed WAV, GPS flight log, plus drone-free recordings at the same site. Check recording law first (F10).
 

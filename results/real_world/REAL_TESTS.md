@@ -79,7 +79,7 @@ ESC-50, share of clips with a drone_electric event (full table: `esc50_by_catego
 
 ## Suggestions to improve the model
 
-In order of expected gain. The full ranked list with sim evidence is in [../../UPGRADES.md](../../UPGRADES.md).
+In order of expected gain. The full ranked list with sim evidence is in [../../docs/UPGRADES.md](../../docs/UPGRADES.md).
 
 1. **Train on far more varied negatives** (biggest gain; needs the D-25 / open question 21 decision).
    - Option A, real negatives only: mix licence-clean real non-drone clips into training scenes as backgrounds and as confusers, labelled negative for all heads. Candidates: FSD50K CC0/CC BY clips covering voices, animals, alarms, horns, household, machinery. Keep ESC-50 and Svanström out of training so they stay honest tests.

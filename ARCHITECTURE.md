@@ -6,7 +6,7 @@ This is the map of the whole system:
 - how each part was built and checked;
 - the machines it runs on.
 
-The reasoning and maths behind each choice are in **design.md**; decision numbers (D-xx) and sections refer to it. To set things up and check them, follow **AGENTS.md**.
+Each technique in depth, with code pointers and measured results, is in **docs/TECHNIQUES.md**. The reasoning and maths behind each choice are in **design.md**; decision numbers (D-xx) and sections refer to it. To set things up and check them, follow **AGENTS.md**.
 
 **Status (2026-10-25):** every software stage exists and runs end to end, but only on simulated sound and public recordings. On top of the chain:
 - **Border watch** shows the whole UAE land border;
@@ -18,7 +18,7 @@ The reasoning and maths behind each choice are in **design.md**; decision number
 | Mic cluster hardware | design 9.6, D-37 |
 | Field test with the owner's flyovers | design 14.7 |
 | Doppler that helps the tracker: pair frequency differences, not one shared pitch state | results/chain_v2/README.md |
-| A mic connected for live input (the code exists) | README section 9 |
+| A mic connected for live input (the code exists) | docs/REPLICATION.md section 9 |
 | Real (not simulated) data in the Zetaris-connected stores | after the field test |
 
 ---
@@ -75,7 +75,7 @@ The design rules, and where each is set:
 | Flat clusters on the ground: they give a good compass bearing but poor elevation, so the tracker gets only a coarse height | D-30, D-38 |
 | Alerts are decided by fixed, tested logic | `alerting/core.py` |
 | The language model only words messages and answers questions, and every number it writes is checked | design 13.6.6 |
-| Live tracking streams directly; Zetaris connects the stored data (about 1 s per query, too slow for the 10 Hz loop) | README section 10 |
+| Live tracking streams directly; Zetaris connects the stored data (about 1 s per query, too slow for the 10 Hz loop) | docs/REPLICATION.md section 10 |
 
 ## 2. What exists, by stage
 
@@ -87,13 +87,13 @@ The design rules, and where each is set:
 | Frequency tracker | `loc/freqtrack.py`, `loc/eval_freq.py` | Built (rebuilt; the original code was lost). 73% of audible frames locked, 0.15% pitch error | 5.2, 6, `results/freqtrack/` |
 | Tracker-guided beamformer (`bf_trk`) | `loc/run_doa.py --trkcomb` | Built. Replaces the oracle comb: tracking as good as with the true shaft rates | `results/chain_v2/` |
 | Tracker (EKF) | `loc/track.py` | Built and tested (NEES). Optional Doppler pitch state, off by default because it hurt on real scenes | 13.2, 13.5, `results/chain_v2/` |
-| Live input (sound card or replay) | `live/run.py` | Built; replays verified. No mic on the dev desktop yet | README section 9 |
+| Live input (sound card or replay) | `live/run.py` | Built; replays verified. No mic on the dev desktop yet | docs/REPLICATION.md section 9 |
 | Rating, danger zone, alert tiers, delivery | `alerting/rating.py`, `danger.py`, `core.py`, `delivery.py` | Built and tested; tabletop and replays | 5.12, 13.3, 13.6 |
 | Nemotron layer and site data over MCP | `alerting/agent.py`, `sitedata.py`, `sitedata_mcp.py`, `config.py` | Built. Runs Nemotron 3.5 Lightning on Anna's PC. Zetaris is a stand-in | 13.4, 13.6 |
-| UAE terrain tool (live demo) | `terra/` | Built. Full chain on real UAE terrain in 3D | README "Live demo" |
-| Border watch (operator screen) | `terra/border.py`, `terra/static/border.*`, `scripts/border_incidents.py`, `alerting/border.py` | Built. Whole land border, 6 simulated incidents replayed, border-crossing alerts | README section 10 |
+| UAE terrain tool (live demo) | `terra/` | Built. Full chain on real UAE terrain in 3D | README (Run it) |
+| Border watch (operator screen) | `terra/border.py`, `terra/static/border.*`, `scripts/border_incidents.py`, `alerting/border.py` | Built. Whole land border, 6 simulated incidents replayed, border-crossing alerts | docs/REPLICATION.md section 10 |
 | Build mode (tactical screen) | `terra/build.py`, `terra/replay.py`, `terra/retrack.py`, `terra/static/border.*` | Built. Place clusters (3D listening domes) and drone paths, run the chain, replay with captions | README Live demo |
-| Zetaris federation and Ask | `scripts/sensor_stores.py`, `scripts/border_ops.py`, `alerting/sitedata_zetaris.py`, `terra/federated.py`, `terra/ask.py` | Built. Local Zetaris connects 8 stores (6 sectors, fusion, operations); Nemotron answers from them | README section 10 |
+| Zetaris federation and Ask | `scripts/sensor_stores.py`, `scripts/border_ops.py`, `alerting/sitedata_zetaris.py`, `terra/federated.py`, `terra/ask.py` | Built. Local Zetaris connects 8 stores (6 sectors, fusion, operations); Nemotron answers from them | docs/REPLICATION.md section 10 |
 | Cluster hardware and firmware | — | Planned | 7, 9.6 |
 
 ## 3. The parts in detail
@@ -165,7 +165,7 @@ It renders what microphones hear while drones and drone-like sounds move past, i
 - **Testing after training:**
   - a failure analysis by slice, robustness and sweeps (design 5.10, `analysis/`);
   - real-recording tests on IDMT, Svanström and ESC-50 (`results/real_world/REAL_TESTS.md`).
-- **Real-world result:** real drones are detected out to about 100 m, but everyday non-drone sounds trigger false alarms. UPGRADES.md ranks the fixes.
+- **Real-world result:** real drones are detected out to about 100 m, but everyday non-drone sounds trigger false alarms. docs/UPGRADES.md ranks the fixes.
 
 ### 3.3 Localisation: clusters, direction finding, tracking (`sim/layouts.py`, `loc/`)
 
@@ -271,7 +271,7 @@ The tracker finds each cluster's harmonic tone (up to two) every 0.1 s without k
 
 ### 3.5 UAE terrain tool (`terra/`)
 
-A browser tool that runs the whole chain on real UAE terrain. It is the live demo (README "Live demo"; AGENTS.md step 7).
+A browser tool that runs the whole chain on real UAE terrain. It is the live demo (README (Run it); AGENTS.md step 7).
 
 ```mermaid
 flowchart LR
@@ -340,7 +340,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 | 2026-10-22 | **Decisions for v0.4:** fine-tune CNN14 on a log-f spectrogram; simulation-only training; the owner's flyovers as the test; detection only; three drone classes; whole-scenario rendering; mics on the ground | fdb8122 |
 | 2026-10-22 | **Simulator and CNN code.** Multi-tone labels, a small from-scratch CNN as a baseline, lint and review fixes. Rendering split across both PCs, CNN14 training on Anna's PC | 7a910f6 … 0c589f5 |
 | 2026-10-23 | **v0.5 models (A, B, C).** Replication guide, test environment, AGENTS.md, release `models-v0.5` | 02de68d, c709949 |
-| 2026-10-23 | **Finding the gaps.** Failure analysis of B (design 5.10), real-recording tests and UPGRADES.md, theory vs results (v0.6), the owner's scope decisions and the rating (v0.7), alerting with Nemotron and the danger zone (v0.8), ESP32 nodes (v0.8.1), NEXT_STEPS.md | 8940528 … b2aa54d |
+| 2026-10-23 | **Finding the gaps.** Failure analysis of B (design 5.10), real-recording tests and docs/UPGRADES.md, theory vs results (v0.6), the owner's scope decisions and the rating (v0.7), alerting with Nemotron and the danger zone (v0.8), ESP32 nodes (v0.8.1), docs/NEXT_STEPS.md | 8940528 … b2aa54d |
 | 2026-10-23 | **Phase 1 localisation.** Multi-cluster rendering, direction finding, EKF, scoring, the real IDMT check (design v0.9, 13.5) | 2110f9a, f8c1e2f, 86c8d12 |
 | 2026-10-23 | **All flat (D-30 adopted), coarse height (D-38).** System layer: rating, danger zone, alert core, delivery, Nemotron layer, site data over MCP | c71b778, 7b340e4 |
 | 2026-10-24 | **Nemotron 3.5 Lightning** on Anna's PC through Nightshift's bundled server and an SSH tunnel; fixes to the Nemotron checks | aa1e840 |
@@ -354,7 +354,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 **Who did what:**
 - **The owner (Joseph):** the concept, and the decisions marked [J] in design.md, including sim-only training, the drone classes, flat ground clusters, the false-alarm filter idea, and building on Meterless, Zetaris and Nemotron.
 - **Claude:** the code, the maths and engineering detail marked [C], the experiments and the fixes.
-- **Another Claude session:** wrote design v0.6–v0.8.1 and NEXT_STEPS.md.
+- **Another Claude session:** wrote design v0.6–v0.8.1 and docs/NEXT_STEPS.md.
 
 ## 7. Conventions that keep it reproducible
 
@@ -369,10 +369,10 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 ## 8. What comes next
 
 **Next steps:**
-1. **Field test:** build the first cluster, connect a mic and record a flyover with `live/run.py --record` (README section 9).
+1. **Field test:** build the first cluster, connect a mic and record a flyover with `live/run.py --record` (docs/REPLICATION.md section 9).
 2. **Decide on an early "approaching" alert tier** (owner). `results/spacing/` shows that warning time is limited by the take-cover rule, not by spacing: 0–18 s now, while detection comes 60–200 s ahead. Use 300–600 m spacing rather than 100 m.
 3. **Two drones heard by the same clusters:** each cluster reports one direction, so the second drone gets few bearings (design Q40). Report the two strongest directions per cluster. Ghost tracks were reduced in v0.12.
 4. **Doppler as pair frequency differences** between clusters locked on the same line (`results/chain_v2/README.md`).
 5. **Nightshift's local runtime** (a Nemotron lane on the GPU PC), so operator questions never leave the site.
 
-**Model improvements are ranked in UPGRADES.md.** The cheapest is to compare model 2 with model 1 at a matched false-alarm rate.
+**Model improvements are ranked in docs/UPGRADES.md.** The cheapest is to compare model 2 with model 1 at a matched false-alarm rate.

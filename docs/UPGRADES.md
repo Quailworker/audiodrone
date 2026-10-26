@@ -1,6 +1,6 @@
 # Potential areas for upgrades
 
-Where the current best model (B: CNN14 + log-frequency front end, `models/B_logf_best.pt`) falls short, ranked worst first, with the evidence and what to change. Written 2026-10-23 from the failure analysis in design.md 5.10 and the real-recording tests in [results/real_world/REAL_TESTS.md](results/real_world/REAL_TESTS.md).
+Where the current best model (B: CNN14 + log-frequency front end, `models/B_logf_best.pt`) falls short, ranked worst first, with the evidence and what to change. Written 2026-10-23 from the failure analysis in design.md 5.10 and the real-recording tests in [results/real_world/REAL_TESTS.md](../results/real_world/REAL_TESTS.md).
 
 **Still current (checked 2026-10-25):** model 1 (B) is still the detector everywhere, including Terrain and Border watch. Model 2 was trained but not adopted (`results/M2_logf_comb/`). Work since then went into localisation, the border screen and the sponsor tools (design 13.7–13.8), not the CNN. The tracker's weaknesses (ghost tracks) are in design Q49, not here.
 
