@@ -1,6 +1,11 @@
 # Acoustic Drone Detection and Tracking: Design
 
-- **Status:** draft v0.12, 2026-10-26.
+- **Status:** draft v0.13, 2026-10-26.
+  - v0.13 makes the ghost-track fix **swarm-safe** (Q49, 13.8.5). A fixed 150 m merge would also fold two real drones flying close together into one. The tracker now picks its duplicate rule from what the clusters report:
+    - **one direction per cluster** (today's front end): two tracks within 150 m in plan are one drone, because the data cannot support two that close;
+    - **several directions per cluster** (one per tone line, Q40): tracks merge only when no cluster that heard them sees them apart, and a new track is refused only when its rays point at an existing track.
+
+    A test keeps two drones 70 m apart as two tracks; the fixed rule merged them. The settings are a named profile, `loc/track.py` TRACKER_V12.
   - v0.12:
     - **Build mode** on the tactical screen: place microphone clusters, draw drone paths, run the full chain, replay it. Each cluster shows a 3D listening dome, sized from a range model fitted to the full simulation (`terra/build.py`).
     - **Abu Dhabi swarm test** (`results/swarm_abudhabi/`): in town noise, a small electric quad is heard only within about 170 m, so a mixed swarm hides behind its loudest member.
@@ -1890,6 +1895,38 @@ The usual number and name checks apply (13.6.6). A small model answers from thes
 - **Quiet electric drones in mountains or town noise:** heard only at the line or past it. Clusters behind the border cannot hear far enough across terrain and noise (Q51).
 - **Ghost tracks are the main tracker weakness:** Liwa produced 22 track IDs and Ghuwaifat 12, some at implausible heights (Q49). The Zetaris all-sectors view makes this obvious.
 - All of this is one simulated flight per setting, and no field data.
+
+#### 13.8.5 Duplicate tracks and swarms (v0.12-v0.13)
+
+**Why one drone became many tracks.** Two causes:
+- Flat clusters fix height poorly, so new tracks started at different height guesses over the same drone. The merge step compared 3D distance and never joined them.
+- Bad bearings from far clusters (30–80° off) crossed good ones and started ghosts kilometres away and up.
+
+**v0.12 fix** (`loc/track.py`):
+- a new track needs a third cluster's bearing to agree within 4°, whenever 3 or more clusters give free directions;
+- no track more than 800 m above the ground;
+- tracks within 150 m in plan merge whatever their heights.
+
+Measured by re-running only the tracker on saved runs (`scripts/retrack_eval.py`):
+
+| Run | Extra tracks, mean when tracking | Most tracks at once |
+|---|---|---|
+| Two-drone Abu Dhabi test | 3.5 → 0.16 | 7 → 3 |
+| Liwa | 8.7 → 1.3 | 14 → 5 |
+| Ghuwaifat | 3.2 → 1.7 | 5 → 5 |
+
+The cost is at Jebel Jais, where the drone was held 22 % → 14 % of the time.
+
+**v0.13, swarm-safe.** A fixed 150 m merge would erase a real second drone within 150 m. That is right only while each cluster reports one direction per frame: then a cluster can feed only one of two close tracks, and the second is always a duplicate. The tracker now records when any cluster gives two or more directions in a frame, and then switches rules:
+- **Merge:** two tracks merge only if they are within max(40 m, 3 × their combined horizontal sd) and move alike, or if no cluster that heard them in the last 2 s sees them more than 4° apart in azimuth.
+- **Births:** a birth is refused only if both its rays point at an existing track.
+
+`tests/test_track.py` checks both rules. Two drones 70 m apart past a ring of clusters that reports both directions stay two tracks; the fixed rule merged them into one. A single drone still gives one track. On today's saved runs (one direction per cluster) the results are identical to v0.12.
+
+**Not fixed:**
+- **Heights are still coarse** (D-38): the merge hides the disagreement, it does not improve the estimate.
+- **The front end:** the direction finder still reports one direction per cluster, so two drones heard by the same clusters still appear as one until Q40 is built.
+- **Bad bearings:** the remaining ghosts come from bad bearings from far clusters.
 
 ## 14. Simulation and training data
 

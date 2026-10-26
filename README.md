@@ -13,7 +13,9 @@ Acoustic drone detection: a scenario simulator that renders what microphones hea
 - **results/loc_v1/** has the Phase 1 localisation results (direction finding, tracking, tetrahedron vs flat clusters, real IDMT check); `tasks/phase1_localisation_REPORT.md` summarises them.
 - This README covers how to replicate the published dataset, models and results.
 
-Status (2026-10-25):
+Status (2026-10-26): build mode on the tactical screen (3D listening domes), ghost tracks cut by 80–95 % (design 13.8.5), and swarm-safe duplicate merging, ready for multi-direction finding. Open: two drones heard by the same clusters still show as one (design Q40).
+
+Earlier status (2026-10-25):
 - **Border watch** is the operator screen: the 1,024 km land border, 3,395 clusters, and six simulated incidents replayed through the full chain, with "near the border" and "crossed the border" alerts.
 - **Zetaris** runs locally in Docker and connects eight separate stores: six sector sensor stores, the fusion store (tracks and alerts) and the operations store (posts, shelters, units).
 - **Nemotron 3.5 Lightning** answers through **Meterless Nightshift**, falling back to Nemotron Mini locally.

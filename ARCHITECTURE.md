@@ -349,6 +349,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 | 2026-10-24 | **Frequency tracker rebuilt**; tracker-guided beamformer (chain v2, default in terra); Doppler EKF state (opt-in); live input (`live/`); Nemotron answer deadline with a facts fallback; cluster spacing study (`scripts/spacing_study.py`) | 9db6915 |
 | 2026-10-25 | **Border watch** (the whole land border, simulated incidents, border monitor); **Zetaris** running locally and connecting the sector, fusion and operations stores; **Meterless Nightshift** routing Nemotron 3.5 Lightning (NVIDIA provider); Ask box with a local Nemotron Mini fallback; `scripts/demo_check.sh` | 0118588 |
 | 2026-10-26 | **Build mode** on the tactical screen (3D listening domes, run and replay), the Abu Dhabi swarm study, **ghost tracks reduced** (three-ray births, a height cap, plan merging), retracking of saved runs | 75e1b14 |
+| 2026-10-26 | **Swarm-safe duplicate merging** (tracker picks its rule from one vs several directions per cluster), the TRACKER_V12 profile, a two-drone swarm test | (this commit) |
 
 **Who did what:**
 - **The owner (Joseph):** the concept, and the decisions marked [J] in design.md, including sim-only training, the drone classes, flat ground clusters, the false-alarm filter idea, and building on Meterless, Zetaris and Nemotron.
@@ -358,7 +359,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 ## 7. Conventions that keep it reproducible
 
 - **Seeds:** every scene is defined by its seed. The same seed gives bit-identical audio on the same platform, and audio within 1 LSB of 24-bit across Linux and Windows. `scripts/manifest.py verify` compares renders with `results/sim_v1_manifest.csv` (AGENTS.md steps 2–3).
-- **Labels and tests:** label versions are recorded in each scene's JSON, and tests pin the reference behaviour (`tests/`, 68 tests in 9 files).
+- **Labels and tests:** label versions are recorded in each scene's JSON, and tests pin the reference behaviour (`tests/`, 70 tests in 9 files).
 - **What stays out of git:**
   - **Bulk files:** data, models, runs and elevation tiles.
   - **Secrets:** API keys live in `~/.config/audiodrone/alerting.env` and on Anna's PC only.
