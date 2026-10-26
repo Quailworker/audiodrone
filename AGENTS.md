@@ -10,7 +10,7 @@ Instructions for a coding agent (or a person) to go from a fresh clone to verifi
 
 **Start with ARCHITECTURE.md** for the map of the system: every stage, the code it lives in, the data passed between stages, the machines, and how each part was built.
 
-Background reading, only if you need it: README.md (replication overview and the Live demo section) and design.md (5.8 build plan, 5.9 results, 14.6 simulator, 13.5 localisation, 13.6 alerts).
+Background reading, only if you need it: README.md (overview), docs/TECHNIQUES.md (each technique in depth), docs/REPLICATION.md (the full replication guide) and design.md (5.8 build plan, 5.9 results, 14.6 simulator, 13.5 localisation, 13.6 alerts).
 
 ## Ground rules
 
@@ -181,7 +181,7 @@ If it fails:
 .venv/bin/python -m live.run --replay data/real/svanstrom/audio/DRONE_001.wav --speed 0 --log /tmp/live.jsonl
 ```
 
-Expected on `DRONE_001.wav` (Svanström et al. 2021, CC0, Zenodo 5500576, `Data/Audio` unpacked to `data/real/svanstrom/audio`): the CNN flags drone from about 1.5 s on, and the tracker holds a tone near 172–175 Hz from about 3.5 s. With a microphone, `--list` shows the devices; always pass `--record` in the field so the audio is kept (test data only, never training, D-25). See README section 9.
+Expected on `DRONE_001.wav` (Svanström et al. 2021, CC0, Zenodo 5500576, `Data/Audio` unpacked to `data/real/svanstrom/audio`): the CNN flags drone from about 1.5 s on, and the tracker holds a tone near 172–175 Hz from about 3.5 s. With a microphone, `--list` shows the devices; always pass `--record` in the field so the audio is kept (test data only, never training, D-25). See docs/REPLICATION.md section 9.
 
 ## Step 9: Border watch, with Zetaris
 
@@ -193,7 +193,7 @@ The screen runs without Zetaris: open `http://127.0.0.1:8790/border` with the St
 3. Unzip `zetaris-platform.zip` to `~/zetaris/`, then `cp deploy/zetaris/docker-compose.override.yml ~/zetaris/zetaris-platform/` (memory caps, UI on localhost only).
 4. In `~/zetaris/zetaris-platform`, run `./preflight.sh`, then `docker compose pull`, then `docker compose up -d`, then `./verify.sh`. Success: `All 9 checks passed`.
 
-**Our stores, then Zetaris on top** (README section 10 has the two `docker run` lines for `border-ops-db` and `sensor-db`):
+**Our stores, then Zetaris on top** (docs/REPLICATION.md section 10 has the two `docker run` lines for `border-ops-db` and `sensor-db`):
 
 ```bash
 .venv/bin/pip install JayDeBeApi==1.2.3
@@ -251,7 +251,7 @@ It starts the terra server and the containers if they are down, then checks Zeta
 
 - Electric drones are only detected about 76 % of the time at 0–25 m in sim. This is probably the metric counting ignored or masked frames; under investigation.
 - `drone_engine` fires on ground two-strokes (chainsaws, blowers): about 28 false alarms per hour on drone-free scenes (design D-28, open). For "any engine", use max(drone_engine, ground_engine).
-- Real recordings (results/real_world/REAL_TESTS.md): real drones are detected out to ~100 m, but everyday non-drone sounds (voices, animals, horns, sirens) trigger the electric head on ~80 % of clips. Expect false alarms in the field. See UPGRADES.md for the planned fixes.
+- Real recordings (results/real_world/REAL_TESTS.md): real drones are detected out to ~100 m, but everyday non-drone sounds (voices, animals, horns, sirens) trigger the electric head on ~80 % of clips. Expect false alarms in the field. See docs/UPGRADES.md for the planned fixes.
 - Model 2 (frequency-tracker input channels, `results/M2_logf_comb/`): at the standard 0.5 threshold it has fewer false alarms than model 1 (`drone_engine` 10 vs 28 per hour on `test_sim`), but it also detects less at every range (2–10 points lower). The overall F1 is about the same. It has not been compared at a matched false-alarm rate yet, so model 1 stays the default.
 - Terrain tool limits:
   - Only single knife-edge screening is modelled, with no multi-ridge loss or reflections off hillsides.

@@ -34,11 +34,11 @@ if [ -d "$ZDIR" ]; then
     if (cd "$ZDIR" && dk compose ps --status running --format '{{.Service}}' 2>/dev/null) | grep -q driver; then
         pass "Zetaris running ($ZDIR)"
     else fail "Zetaris not running" "cd $ZDIR && docker compose up -d && ./verify.sh"; fi
-else fail "Zetaris bundle not found at $ZDIR" "README section 10, 'Set up Zetaris locally'"; fi
+else fail "Zetaris bundle not found at $ZDIR" "docs/REPLICATION.md section 10, 'Set up Zetaris locally'"; fi
 for c in border-ops-db sensor-db; do
     [ $START = 1 ] && dk start "$c" >/dev/null 2>&1
     if [ "$(dk inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = "true" ]; then pass "container $c"
-    else fail "container $c not running" "docker start $c   (created in README section 10)"; fi
+    else fail "container $c not running" "docker start $c   (created in docs/REPLICATION.md section 10)"; fi
 done
 if $PY scripts/sensor_stores.py check 2>/dev/null | grep -q "fusion.incidents: 6"; then pass "Zetaris answers: 8 stores, fusion.incidents = 6"
 else fail "Zetaris federation check" "$PY scripts/sensor_stores.py check   (then register / load if empty)"; fi
@@ -63,5 +63,5 @@ if curl -s -m 3 http://127.0.0.1:11434/api/tags | grep -q nemotron-mini; then pa
 else fail "fallback model missing" "ollama pull nemotron-mini   (optional; the Ask box falls back to it)"; fi
 
 echo
-if [ $bad = 0 ]; then echo "READY: open http://127.0.0.1:8790/border"; else echo "$ok ok, $bad to fix (see above)"; fi
+if [ $bad = 0 ]; then echo "READY: open http://127.0.0.1:8790"; else echo "$ok ok, $bad to fix (see above)"; fi
 [ $bad = 0 ]
