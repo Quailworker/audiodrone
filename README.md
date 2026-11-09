@@ -102,6 +102,6 @@ Border watch works without Zetaris and Nemotron. The ZETARIS drawer and the Ask 
 | `tests/` | 70 tests |
 | `results/` | Measured results with READMEs: `freqtrack/`, `chain_v2/`, `spacing/`, `swarm_abudhabi/`, `real_world/`, `loc_v1/`, per model |
 | `docs/` | **[TECHNIQUES.md](docs/TECHNIQUES.md)**, [REPLICATION.md](docs/REPLICATION.md) (full setup, data, training, every tool), [DEMO.md](docs/DEMO.md), [NEXT_STEPS.md](docs/NEXT_STEPS.md), [UPGRADES.md](docs/UPGRADES.md) |
-| `ARCHITECTURE.md`, `design.md`, `AGENTS.md` | System map; design and decisions (D-xx) with maths; step-by-step setup and checks |
+| `ARCHITECTURE.md`, `AGENTS.md` | System map; step-by-step setup and checks |
 
 Licences and data sources (PANNs, Copernicus, Natural Earth, the real-recording datasets) are listed in [docs/REPLICATION.md](docs/REPLICATION.md#licences).

@@ -1,6 +1,6 @@
 # Next steps (as of design v0.11, 2026-10-25)
 
-What to build next, in order. Details and reasons are in `design.md`; this page is the to-do list.
+What to build next, in order. This page is the to-do list.
 
 ## Now (after v0.11)
 

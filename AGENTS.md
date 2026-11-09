@@ -10,7 +10,7 @@ Instructions for a coding agent (or a person) to go from a fresh clone to verifi
 
 **Start with ARCHITECTURE.md** for the map of the system: every stage, the code it lives in, the data passed between stages, the machines, and how each part was built.
 
-Background reading, only if you need it: README.md (overview), docs/TECHNIQUES.md (each technique in depth), docs/REPLICATION.md (the full replication guide) and design.md (5.8 build plan, 5.9 results, 14.6 simulator, 13.5 localisation, 13.6 alerts).
+Background reading, only if you need it: README.md (overview), docs/TECHNIQUES.md (each technique in depth), docs/REPLICATION.md (the full replication guide).
 
 ## Ground rules
 
@@ -99,7 +99,7 @@ Outputs go next to the recording:
 - `<name>.detections.csv`: events of at least 0.5 s with probability ≥ the threshold (0.5 by default);
 - `<name>.detections.png`: the spectrogram and the three probability traces.
 
-For a field flyover (design.md 14.7), report:
+For a field flyover (`cnn/infer.py`), report:
 - whether the drone was detected;
 - the first and last detection times compared with the flight log (which gives the detection range);
 - any detections in the no-drone recordings (false alarms per hour).
@@ -247,7 +247,7 @@ bash scripts/demo_check.sh --start
 
 It starts the terra server and the containers if they are down, then checks Zetaris, the federation, the tunnel, a Nemotron reply through Nightshift and the fallback. Success: every line `OK` and the last line `READY: open http://127.0.0.1:8790/border`. Each `FAIL` line says what to do.
 
-## Known issues (design.md 5.9.4)
+## Known issues
 
 - Electric drones are only detected about 76 % of the time at 0–25 m in sim. This is probably the metric counting ignored or masked frames; under investigation.
 - `drone_engine` fires on ground two-strokes (chainsaws, blowers): about 28 false alarms per hour on drone-free scenes (design D-28, open). For "any engine", use max(drone_engine, ground_engine).

@@ -6,7 +6,7 @@ This is the map of the whole system:
 - how each part was built and checked;
 - the machines it runs on.
 
-Each technique in depth, with code pointers and measured results, is in **docs/TECHNIQUES.md**. The reasoning and maths behind each choice are in **design.md**; decision numbers (D-xx) and sections refer to it. To set things up and check them, follow **AGENTS.md**.
+Each technique in depth, with code pointers and measured results, is in **docs/TECHNIQUES.md**. Decision numbers (D-xx) and section numbers in the code refer to the internal design log, which is not published. To set things up and check them, follow **AGENTS.md**.
 
 **Status (2026-10-25):** every software stage exists and runs end to end, but only on simulated sound and public recordings. On top of the chain:
 - **Border watch** shows the whole UAE land border;
@@ -336,7 +336,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 
 | Date | Step | Commits |
 |---|---|---|
-| 2026-10-22 | **Design.** The owner's design.md (v0.3, D-01 to D-23): drones detected by their evenly spaced tones, ground mic clusters, a CNN, a Kalman filter. The CNN plan was reviewed and the CNN14 bn0 layout checked against PANNs | 34e4d10, 96f00f8, c22eac4 |
+| 2026-10-22 | **Design.** The design (v0.3, D-01 to D-23): drones detected by their evenly spaced tones, ground mic clusters, a CNN, a Kalman filter. The CNN plan was reviewed and the CNN14 bn0 layout checked against PANNs | 34e4d10, 96f00f8, c22eac4 |
 | 2026-10-22 | **Decisions for v0.4:** fine-tune CNN14 on a log-f spectrogram; simulation-only training; the owner's flyovers as the test; detection only; three drone classes; whole-scenario rendering; mics on the ground | 349b172 |
 | 2026-10-22 | **Simulator and CNN code.** Multi-tone labels, a small from-scratch CNN as a baseline, lint and review fixes. Rendering split across both PCs, CNN14 training on the Windows PC | 40ca13b … 5a1740c |
 | 2026-10-23 | **v0.5 models (A, B, C).** Replication guide, test environment, AGENTS.md, release `models-v0.5` | c05da70, a4234e2 |
@@ -352,7 +352,7 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 | 2026-10-26 | **Swarm-safe duplicate merging** (tracker picks its rule from one vs several directions per cluster), the TRACKER_V12 profile, a two-drone swarm test | 1158c7d |
 
 **Who did what:**
-- **The owner:** the concept, and the decisions marked [J] in design.md, including sim-only training, the drone classes, flat ground clusters, the false-alarm filter idea, and building on Meterless, Zetaris and Nemotron.
+- **The owner:** the concept, and the key design decisions, including sim-only training, the drone classes, flat ground clusters, the false-alarm filter idea, and building on Meterless, Zetaris and Nemotron.
 - **Claude:** the code, the maths and engineering detail marked [C], the experiments and the fixes.
 - **Another Claude session:** wrote design v0.6–v0.8.1 and docs/NEXT_STEPS.md.
 

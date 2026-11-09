@@ -1,6 +1,6 @@
 # Localisation results, v1 (Phase 1)
 
-Direction finding and tracking for multi-cluster scenes, plus a real direction-finding check on the IDMT array recordings. Full write-up: **design.md 13.5**. Short report: `tasks/phase1_localisation_REPORT.md`. Reproduce: README.md section 6.
+Direction finding and tracking for multi-cluster scenes, plus a real direction-finding check on the IDMT array recordings. Short report: `tasks/phase1_localisation_REPORT.md`. Reproduce: README.md section 6.
 
 ## Files
 
