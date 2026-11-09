@@ -336,20 +336,20 @@ Scripts used across the two PCs are kept in `scripts/two_pc/` as a record.
 
 | Date | Step | Commits |
 |---|---|---|
-| 2026-10-22 | **Design.** The design (v0.3, D-01 to D-23): drones detected by their evenly spaced tones, ground mic clusters, a CNN, a Kalman filter. The CNN plan was reviewed and the CNN14 bn0 layout checked against PANNs | 34e4d10, 96f00f8, c22eac4 |
-| 2026-10-22 | **Decisions for v0.4:** fine-tune CNN14 on a log-f spectrogram; simulation-only training; the owner's flyovers as the test; detection only; three drone classes; whole-scenario rendering; mics on the ground | 349b172 |
-| 2026-10-22 | **Simulator and CNN code.** Multi-tone labels, a small from-scratch CNN as a baseline, lint and review fixes. Rendering split across both PCs, CNN14 training on the Windows PC | 40ca13b … 5a1740c |
-| 2026-10-23 | **v0.5 models (A, B, C).** Replication guide, test environment, AGENTS.md, release `models-v0.5` | c05da70, a4234e2 |
-| 2026-10-23 | **Finding the gaps.** Failure analysis of B (design 5.10), real-recording tests and docs/UPGRADES.md, theory vs results (v0.6), the owner's scope decisions and the rating (v0.7), alerting with Nemotron and the danger zone (v0.8), ESP32 nodes (v0.8.1), docs/NEXT_STEPS.md | 9e2a353 … 6a1048b |
-| 2026-10-23 | **Phase 1 localisation.** Multi-cluster rendering, direction finding, EKF, scoring, the real IDMT check (design v0.9, 13.5) | 79bd66f, ccdcc8c, 057eda4 |
-| 2026-10-23 | **All flat (D-30 adopted), coarse height (D-38).** System layer: rating, danger zone, alert core, delivery, Nemotron layer, site data over MCP | fba8673, 74a7372 |
-| 2026-10-24 | **Nemotron 3.5 Lightning** on the Windows PC through Nightshift's bundled server and an SSH tunnel; fixes to the Nemotron checks | 463cae9 |
-| 2026-10-24 | **Model 2** (frequency-tracker channels) trained; not adopted. **UAE terrain tool** (live demo) | 7c29f1f, 855fef7 |
-| 2026-10-24 | **ARCHITECTURE.md** | 9aef72d |
-| 2026-10-24 | **Frequency tracker rebuilt**; tracker-guided beamformer (chain v2, default in terra); Doppler EKF state (opt-in); live input (`live/`); Nemotron answer deadline with a facts fallback; cluster spacing study (`scripts/spacing_study.py`) | 6f65e9a |
-| 2026-10-25 | **Border watch** (the whole land border, simulated incidents, border monitor); **Zetaris** running locally and connecting the sector, fusion and operations stores; **Meterless Nightshift** routing Nemotron 3.5 Lightning (NVIDIA provider); Ask box with a local Nemotron Mini fallback; `scripts/demo_check.sh` | a9ea27e |
-| 2026-10-26 | **Build mode** on the tactical screen (3D listening domes, run and replay), the Abu Dhabi swarm study, **ghost tracks reduced** (three-ray births, a height cap, plan merging), retracking of saved runs | ac71978 |
-| 2026-10-26 | **Swarm-safe duplicate merging** (tracker picks its rule from one vs several directions per cluster), the TRACKER_V12 profile, a two-drone swarm test | 1158c7d |
+| 2026-10-22 | **Design.** The design (v0.3, D-01 to D-23): drones detected by their evenly spaced tones, ground mic clusters, a CNN, a Kalman filter. The CNN plan was reviewed and the CNN14 bn0 layout checked against PANNs | (internal) |
+| 2026-10-22 | **Decisions for v0.4:** fine-tune CNN14 on a log-f spectrogram; simulation-only training; the owner's flyovers as the test; detection only; three drone classes; whole-scenario rendering; mics on the ground | 4795d65 |
+| 2026-10-22 | **Simulator and CNN code.** Multi-tone labels, a small from-scratch CNN as a baseline, lint and review fixes. Rendering split across both PCs, CNN14 training on the Windows PC | c12f714 … 22f92ba |
+| 2026-10-23 | **v0.5 models (A, B, C).** Replication guide, test environment, AGENTS.md, release `models-v0.5` | 6656207, a51e4a1 |
+| 2026-10-23 | **Finding the gaps.** Failure analysis of B (design 5.10), real-recording tests and docs/UPGRADES.md, theory vs results (v0.6), the owner's scope decisions and the rating (v0.7), alerting with Nemotron and the danger zone (v0.8), ESP32 nodes (v0.8.1), docs/NEXT_STEPS.md | c4de39f … 26de0c0 |
+| 2026-10-23 | **Phase 1 localisation.** Multi-cluster rendering, direction finding, EKF, scoring, the real IDMT check (design v0.9, 13.5) | 24bd6ab, 5b634fe, f8bfb40 |
+| 2026-10-23 | **All flat (D-30 adopted), coarse height (D-38).** System layer: rating, danger zone, alert core, delivery, Nemotron layer, site data over MCP | 560f920 |
+| 2026-10-24 | **Nemotron 3.5 Lightning** on the Windows PC through Nightshift's bundled server and an SSH tunnel; fixes to the Nemotron checks | dc23121 |
+| 2026-10-24 | **Model 2** (frequency-tracker channels) trained; not adopted. **UAE terrain tool** (live demo) | 4b0f162, 2280dbb |
+| 2026-10-24 | **ARCHITECTURE.md** | 67cc97a |
+| 2026-10-24 | **Frequency tracker rebuilt**; tracker-guided beamformer (chain v2, default in terra); Doppler EKF state (opt-in); live input (`live/`); Nemotron answer deadline with a facts fallback; cluster spacing study (`scripts/spacing_study.py`) | 95736f1 |
+| 2026-10-25 | **Border watch** (the whole land border, simulated incidents, border monitor); **Zetaris** running locally and connecting the sector, fusion and operations stores; **Meterless Nightshift** routing Nemotron 3.5 Lightning (NVIDIA provider); Ask box with a local Nemotron Mini fallback; `scripts/demo_check.sh` | e0d8c88 |
+| 2026-10-26 | **Build mode** on the tactical screen (3D listening domes, run and replay), the Abu Dhabi swarm study, **ghost tracks reduced** (three-ray births, a height cap, plan merging), retracking of saved runs | 74ce2f3 |
+| 2026-10-26 | **Swarm-safe duplicate merging** (tracker picks its rule from one vs several directions per cluster), the TRACKER_V12 profile, a two-drone swarm test | 112e4f4 |
 
 **Who did what:**
 - **The owner:** the concept, and the key design decisions, including sim-only training, the drone classes, flat ground clusters, the false-alarm filter idea, and building on Meterless, Zetaris and Nemotron.
